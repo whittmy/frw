@@ -1,0 +1,17 @@
+http://localhost/ci/erge.php/erge/api/index
+
+注：
+添加 AntiCollect.php类 反采集反刷新，会在 application/项目/ 下自动创建 anti-ip目录。
+可以（也可以不设置）设置参数(数组)， 
+	function __construct($param = null){
+		$this->CI = & get_instance();
+		
+		if($param!=null && isset($param['prefix']) && strlen($param['prefix']) >0){
+			$this->prefix = $param['prefix'].'_';
+		}
+		else{
+			$this->prefix = '';
+		}
+ 
+如：$this->load->library('AntiCollect', array('prefix'=>'mytag'));
+$this->anticollect->apply();
