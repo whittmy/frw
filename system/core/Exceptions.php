@@ -107,6 +107,7 @@ class CI_Exceptions {
 		$message = "The page you requested was not found.";
 
 		// By default we log this, but allow a dev to skip it
+		//rocking
 		if ($log_error && $page != 'favicon.ico')
 		{
 			log_message('error', '404 Page Not Found --> '.$page);

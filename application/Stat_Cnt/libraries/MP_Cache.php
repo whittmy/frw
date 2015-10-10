@@ -217,17 +217,7 @@ class MP_Cache
         log_message('debug', "MP_Cache retrieved: ".$filename);
         return $this->contents;
     }
-   
-
-
-	//rocking
-	function create_folders($dir){ 
-		//echo $dir.'<br>';	
-		return is_dir($dir) or (@$this->create_folders(dirname($dir)) and mkdir($dir, 0777)); 
-	}
-
-
- 
+    
 	/**
 	 * Write Cache File
 	 *
@@ -273,9 +263,7 @@ class MP_Cache
             if ( ! @file_exists($test_path))
             {
                 // create non existing dirs, asumes PHP5
-                //rocking if ( ! @mkdir($test_path)) return false;
-		//exit($test_path);
-		if(! @$this->create_folders($test_path)) return false;
+                if ( ! @mkdir($test_path)) return false;
             }
         }
         
