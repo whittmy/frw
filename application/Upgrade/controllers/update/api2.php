@@ -1,17 +1,28 @@
 <?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
 
 class Api2 extends CI_Controller {
-
+    // only here used by mmh-devices
     function handler(){
 		$apk_vercode =$this->input->post('apk_vercode');
-		$brand =$this->input->post('brand');
 		$board =$this->input->post('board');
-		$mac =$this->input->post('mac');
 		$android =$this->input->post('android');
  		$time =$this->input->post('time');
+        
+        $upmode = trim($this->input->post('upmode'));   //upgrad-mode: ota / all
+        if($upmode != 'all'){
+            $upmode = 'ota';
+        }
+        $mac = trim($this->input->post('mac'));    //7cc7093b2cb7
+		$brand = trim($this->input->post('brand'));     //OEM
+		$firmware = trim($this->input->post('firmware'));     //firmware version   00.00.19
+        $device = trim($this->input->post('device'));          //machine model      pippia
+        //exit("apk:$apk_vercode, brand:$brand,board:$board,mac:$mac,android:$android,time:$time,firmware:$firmware,device:$device");
 
-		$firmware =$this->input->post('firmware');     //firmware version  
-        $device =$this->input->post('device');          //machine model
+        if(empty($mac) || empty($brand) || empty($firmware) || empty($device)){
+            $data1 = '<root><status>other</status><url></url><md5></md5><description country="ELSE"></description></root>';
+            header('Content-Type: text/xml');	
+            exit($data1);
+        }
 
         $this->load->library('MP_Cache');
         $cacheName = $device.'/'.$firmware;
@@ -24,11 +35,45 @@ class Api2 extends CI_Controller {
             //$coutry = "ELSE / 系统读取的country";
             //$intro = 'upd.......';
             
-            $status =  'other';
-            $url = 'http://www.nybgjd.com/update.ipa';
-            $md_5 = '090E013C02FA170CFA23EE78390DC312';
-            $coutry = 'ELSE';
-            $intro = '该版本为测试，不求多么伟大，但求没有问题';
+            $status = 'other';  $coutry = 'ELSE'; $url = ''; $md_5 = ''; $intro = '';
+            
+            $this->load->database('ergedev'); //add ergedev-dbinfo in file 'database.php'
+            $sql = "SELECT modelID FROM ug_model where model='$device' and oemID=(select oemID from ug_customer where customer='$brand')";
+            //exit($sql);
+            $query = $this->db->query($sql);	
+            foreach($query->result() as $row){
+                $modelID = $row->modelID;
+                $query->free_result();
+                
+                $sql = '';
+                if($upmode == 'ota'){
+                    $sql = "select * from ug_app where modelID=$modelID and cur_ver='$firmware' order by target_ver desc limit 1";
+                }
+                else if($upmode == 'all'){
+                    $sql = "select * from ug_app where modelID=$modelID and cur_ver='' and target_ver>'$firmware' order by target_ver desc limit 1";
+                }
+                
+                if(!empty($sql)){
+                    $query = $this->db->query($sql);
+                    foreach($query->result() as $row){
+                        $url = $row->url;
+                        $md_5 = $row->hashCode;
+                        $intro = $row->target_ver."\n".$row->intro;
+                        $status = 'success';
+                        $query->free_result( );
+                        break;
+                    }
+                }
+                break;
+            }
+            $this->db->close();
+            
+            
+            
+            //$status =  'other';
+            //$url = 'http://www.nybgjd.com/update.ipa';
+            //$md_5 = '090E013C02FA170CFA23EE78390DC312';
+            //$intro = '该版本为测试，不求多么伟大，但求没有问题';
             
             $data1 = '<root><status>'.$status.'</status><url>'.$url.'</url><md5>'.$md_5.'</md5><description country="'.$coutry.'">'.$intro.'</description></root>';
             $this->mp_cache->write($data1, $cacheName, 24*3600);
@@ -38,6 +83,17 @@ class Api2 extends CI_Controller {
         exit($data1);
     }
 	// notice: :set nobomb,  delete bom of utf8
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    //------------------- may be used by other app -----------------------------
 
 	function t2_wht_alter(){
 		$this->load->library('MP_Cache');
