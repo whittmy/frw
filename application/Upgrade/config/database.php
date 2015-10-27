@@ -64,6 +64,20 @@ $db['default']['swap_pre'] = '';
 $db['default']['autoinit'] = TRUE;
 $db['default']['stricton'] = FALSE;
 
-
+$db['ergedev']['hostname'] = 'localhost';
+$db['ergedev']['username'] = 'root';
+$db['ergedev']['password'] = 'lemoon8888';
+$db['ergedev']['database'] = 'prj_mmh';
+$db['ergedev']['dbdriver'] = 'mysql';
+$db['ergedev']['dbprefix'] = '';
+$db['ergedev']['pconnect'] = TRUE;
+$db['ergedev']['db_debug'] = TRUE;
+$db['ergedev']['cache_on'] = FALSE;
+$db['ergedev']['cachedir'] = '';
+$db['ergedev']['char_set'] = 'utf8';
+$db['ergedev']['dbcollat'] = 'utf8_general_ci';
+$db['ergedev']['swap_pre'] = '';
+$db['ergedev']['autoinit'] = TRUE;
+$db['ergedev']['stricton'] = FALSE;
 /* End of file database.php */
 /* Location: ./application/config/database.php */
