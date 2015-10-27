@@ -97,5 +97,22 @@ $db['erge2']['swap_pre'] = '';
 $db['erge2']['autoinit'] = TRUE;
 $db['erge2']['stricton'] = FALSE;
 
+
+$db['prj_mmh']['hostname'] = 'localhost';
+$db['prj_mmh']['username'] = 'root';
+$db['prj_mmh']['password'] = 'lemoon8888';
+$db['prj_mmh']['database'] = 'prj_mmh';
+$db['prj_mmh']['dbdriver'] = 'mysql';
+$db['prj_mmh']['dbprefix'] = '';
+$db['prj_mmh']['pconnect'] = FALSE;
+$db['prj_mmh']['db_debug'] = TRUE;
+$db['prj_mmh']['cache_on'] = FALSE;
+$db['prj_mmh']['cachedir'] = '';
+$db['prj_mmh']['char_set'] = 'utf8';
+$db['prj_mmh']['dbcollat'] = 'utf8_general_ci';
+$db['prj_mmh']['swap_pre'] = '';
+$db['prj_mmh']['autoinit'] = TRUE;
+$db['prj_mmh']['stricton'] = FALSE;
+
 /* End of file database.php */
 /* Location: ./application/config/database.php */
