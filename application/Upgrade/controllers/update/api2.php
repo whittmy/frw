@@ -24,6 +24,11 @@ class Api2 extends CI_Controller {
             exit($data1);
         }
 
+        
+        //piapia 00.00.19版本： apk:11, brand:softwinners,board:nuclear,mac:7cc7093b2cb7,android:4.2.2,time:1443154672,firmware:0.0.19,device:nuclear-story
+        
+        
+        
         $this->load->library('MP_Cache');
         $cacheName = $device.'/'.$firmware;
 		$data1 = $this->mp_cache->get($cacheName);
