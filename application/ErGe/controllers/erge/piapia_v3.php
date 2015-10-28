@@ -82,7 +82,7 @@ class PiaPia_V3  extends CI_Controller {
         }
         else{
             if($src!='letv'){
-                exit('null')
+                exit('null');
             }
             
             $data1 = $this->_parserUrl($data1, $src);
