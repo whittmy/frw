@@ -75,43 +75,38 @@ class PiaPia_V2  extends CI_Controller {
             header('Location: '.$data1);
             return;
         }
-        
-        if($src != 'youku' && $src!='iqiyi' && $src!='letv'){
-            exit('null');
-        }
-        
-        $data1 = $this->_parserUrl($data1, $src);
-        
-        if($src == 'youku'){
-            //exit($data1);
+        elseif($src == 'youku' || $src == 'iqiyi' || $src=='funshion'){
+            $data1 = $this->_parserUrl($data1, $src);
             header('Location: '.$data1);
             return;
         }
-        else if($src == 'iqiyi'){
-            //$data1 = '#EXTM3U'."\n".$data1."\n#EXT-X-ENDLIST";
-            header('Location: '.$data1);
-            return;
+        else{
+            if($src!='letv'){
+                exit('null')
+            }
+            
+            $data1 = $this->_parserUrl($data1, $src);
+            
+            $tmpfile = tempnam(sys_get_temp_dir(),urlencode($url));
+            if($tmpfile === false){
+                exit('null');
+            }
+            $len = file_put_contents($tmpfile, $data1, LOCK_EX); 
+            if(false === $len){
+                exit('null');
+            }
+            
+            //log_message('error', 'getStreamUrl successful:'.$rpath);
+            header('Content-Description: File Transfer');
+            header('Content-Type: application/vnd.apple.mpegurl');
+            header('Content-Disposition: attachment; filename='.time().'.m3u8');
+            header('Content-Transfer-Encoding: binary');
+            header('Expires: 0');
+            header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+            header('Pragma: public');
+            header('Content-Length: ' . $len);
+            readfile($tmpfile);                 
         }
-
-        $tmpfile = tempnam(sys_get_temp_dir(),urlencode($url));
-        if($tmpfile === false){
-            exit('null');
-        }
-        $len = file_put_contents($tmpfile, $data1, LOCK_EX); 
-        if(false === $len){
-            exit('null');
-        }
-        
-        //log_message('error', 'getStreamUrl successful:'.$rpath);
-        header('Content-Description: File Transfer');
-        header('Content-Type: application/vnd.apple.mpegurl');
-        header('Content-Disposition: attachment; filename='.time().'.m3u8');
-        header('Content-Transfer-Encoding: binary');
-        header('Expires: 0');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Pragma: public');
-        header('Content-Length: ' . $len);
-        readfile($tmpfile);      
     }
     
 	// test ppython
