@@ -613,7 +613,7 @@ class PiaPia_V3  extends CI_Controller {
                 return null;
             }
             
-            $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid in ('.$ids.') where l_src!=\'360\''; //这里未限制
+            $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid in ('.$ids.') and l_src!=\'360\''; //这里未限制
             $query = $this->db->query($sql);
         }
         else{
