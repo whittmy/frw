@@ -12,7 +12,7 @@ class PiaPia_V3  extends CI_Controller {
     
     function __construct() {
        parent::__construct();
-       $this->mOemName = 'piapia_v2';
+       $this->mOemName = 'piapia_v3';
        $this->mChkKey = '@#xpia&*1452';
     }
     
@@ -44,7 +44,7 @@ class PiaPia_V3  extends CI_Controller {
     
     
     //http://www.nybgjd.com/erge/piapia/playurl/36054/youku
-    function playurl($id='', $src='', $tm='', $md5=''){
+    function playurl($id='', $src='',$idx='', $tm='', $md5=''){
         if(strlen($id)==0 || strlen($src)==0)
             return;
 
@@ -53,17 +53,26 @@ class PiaPia_V3  extends CI_Controller {
         
         
         $this->load->library('MP_Cache');
-        $cacheName = $this->mOemName.'/api__playurl/'.$id.'-'.$src;
+        $cacheName = $this->mOemName.'/api__playurl/'.$id.'-'.$idx.'-'.$src;
+        
+        $data1 = $this->mp_cache->get($cacheName.'-real');
+        if($data1 != false && substr($data1, 0, 4)=='http'){
+            header('Location: '.$data1);
+            return;
+        }
+        
 		$data1 = $this->mp_cache->get($cacheName);
-        //$data1 = false;
+        //$data1 = false; 
         
         if($data1 === false){
-            $this->load->database('erge2');
-			$sql = 'select l_downurl from res_libs where id='.$id;	
+            $this->load->database('prj_mmh');
+			$sql = "select l_downurl from mmh_vod_libs where l_pid=$id and l_idx=$idx and l_src='$src'";
+            //exit($sql);
 			$query = $this->db->query($sql);
 			foreach($query->result() as $row){
-               $data1 = $row->l_downurl;
-               $this->mp_cache->write($data1, $cacheName, 60*8);
+                $data1 = $row->l_downurl;
+                if(!empty($data1))
+                    $this->mp_cache->write($data1, $cacheName, 60*8);
                 break;
             }
             $query->free_result(); 
@@ -72,11 +81,13 @@ class PiaPia_V3  extends CI_Controller {
         //exit($data1);
         
         if($src == 'ergeduoduo'){
+            $this->mp_cache->write($data1, $cacheName.'-real', 60*8);
             header('Location: '.$data1);
             return;
         }
         elseif($src == 'youku' || $src == 'iqiyi' || $src=='funshion'){
             $data1 = $this->_parserUrl($data1, $src);
+            $this->mp_cache->write($data1, $cacheName.'-real', 60*8);
             header('Location: '.$data1);
             return;
         }
@@ -108,6 +119,8 @@ class PiaPia_V3  extends CI_Controller {
             readfile($tmpfile);                 
         }
     }
+    
+    
     
 	// test ppython
     function test(){
@@ -225,7 +238,46 @@ class PiaPia_V3  extends CI_Controller {
 		}
 	}
 
-	
+	//
+    //X-Sendfile 将允许下载非 web 目录中的文件（例如/root/），即使文件在 .htaccess 保护下禁止访问，也会被下载。
+    // 缺点是你失去了对文件传输机制的控制, 比如只允许用户下载文件一次
+    //Nginx 默认支持该特性，不需要加载额外的模块。只是实现有些不同，需要发送的 HTTP 头为 X-Accel-Redirect。另外，需要在配置文件中做以下设定
+    /*
+        location /protected/ {
+          internal;
+          root   /some/path;
+        }
+        internal 表示这个路径只能在 Nginx 内部访问，不能用浏览器直接访问防止未授权的下载。
+    */
+    function image(){
+        $file = "/protected/中文名.tar.gz";  //对应 /some/path/protected/中文名.tar.gz
+ 
+        //若想发送 /some/path/中文名.tar.gz,则配置改为如下：
+        /*
+        location /protected/ {
+          internal;
+          alias   /some/path/; # 注意最后的斜杠
+        }
+        */
+ 
+        $filename = basename($file);
+     
+        header("Content-type: application/octet-stream");
+     
+        //处理中文文件名
+        $ua = $_SERVER["HTTP_USER_AGENT"];
+        $encoded_filename = rawurlencode($filename);
+        if (preg_match("/MSIE/", $ua)) {
+         header('Content-Disposition: attachment; filename="' . $encoded_filename . '"');
+        } else if (preg_match("/Firefox/", $ua)) {
+         header("Content-Disposition: attachment; filename*=\"utf8''" . $filename . '"');
+        } else {
+         header('Content-Disposition: attachment; filename="' . $filename . '"');
+        }
+     
+        //让Xsendfile发送文件
+        header("X-Accel-Redirect: $file");
+    }
 
 	//////////////// 获取分类  ////////////////////////
 	//http://www.nybgjd.com/erge/piapia/getCata?header={"sign":"","client":1}&body={}
@@ -244,11 +296,12 @@ class PiaPia_V3  extends CI_Controller {
 		$data1 = $this->mp_cache->get($cacheName);
 		$data1 = false;		
 		if($data1 == false){
-			$this->load->database('erge2');
+			//$this->load->database('erge2');
+            $this->load->database('prj_mmh');
  			$ret = array();
             $cids = strtr($cids, array('_'=>','));
             
-            $sql = 'select r_did from r_cls_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+            $sql = 'select r_did from mmh_vod_r_type_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
             $query = $this->db->query($sql);
             $cids = '';
             foreach($query->result() as $row){
@@ -259,13 +312,14 @@ class PiaPia_V3  extends CI_Controller {
                 return null;
             //exit($cids);
             
-			$sql = 'select id,d_name,d_pic,d_hasseq,d_type from res_dir where id in ('.$cids.') order by id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+			$sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.') order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
 			$query = $this->db->query($sql);
 			foreach($query->result() as $row){
 				$cif = array();
-				$cif['id'] = $row->id.'';
+				$cif['id'] = $row->d_id.'';
 				$cif['name'] = $row->d_name;
-				$cif['pic'] = 'posters/'.$row->id.'.jpg';//$row->d_pic;
+				$cif['pic'] = 'posters/'.$row->d_id.'.jpg';//$row->d_pic;
+                //$cif['pic']=$row->d_pic;
 				$cif['hasseq'] = $row->d_hasseq.'';
 				$cif['type']=$row->d_type;
  				$ret[] = $cif;	
@@ -392,7 +446,7 @@ class PiaPia_V3  extends CI_Controller {
             水平分类条目
                 内容的类别 可以为：
                     类别列表(最初)、
-                        一个类别代表一个水平分类，该类的内容为该类下面的剧集列表(res_dir)
+                        一个类别代表一个水平分类，该类的内容为该类下面的剧集列表(mmh_vod)
                     
                     单集影片列表、
                         就是推荐的影片列表
@@ -448,7 +502,6 @@ class PiaPia_V3  extends CI_Controller {
         require(APPPATH.'/controllers/erge/PUBLIC_CFG/cate_info_cache.php');
         //global $TOPIC_INFO_CACHE;
 
-        //$this->load->database('erge2');
         $headerList = null;
         $body = null;
         $ret = array();
@@ -488,7 +541,8 @@ class PiaPia_V3  extends CI_Controller {
 
 
 
-    
+    //果然将Url合并到 影片信息中的这种设计方式不是很符合我们的使用场景，主要是因为，某列存储了所有剧集的所有url，到这儿我们取部分的url就比较麻烦了。虽然对cms管理起来很方便。
+    //这部分还是改成之前的 res_libs的组织架构吧。每次cms修改影片信息时就需要多表联合起来增删改查啦。
 	
 	//http://pc-20140929gboj/ci/erge.php/erge/piapia/getPL?header={"sign":"","client":1}&body={"id":1, "pageindex":1} 
     //http://www.nybgjd.com/erge/piapia/getPL/?header={"sign":"22"}&body={"pageindex":1,"id":25234,"pagesize":"30","type":"10"}
@@ -520,6 +574,7 @@ class PiaPia_V3  extends CI_Controller {
 		exit($data1);
 	}
     
+    //点进去要播放时获取数据的接口， 所以必须确保取到的数据必须是 播放地址，而非某类别，要么是某部剧集，要么是包含很多单集的某类别，要不就是某单集，除此之外没有其它的。不可能出现包含多部剧集(播放地址无法取啦)的情况
     //处理类别， type=10:代表分类列表模式，要先查询r表，其它的估计都是单集或剧集
     function _genPLCache($id, $type, $pgId, $pgsize, $cacheName){
         $id = trim($id, ' ');
@@ -527,12 +582,25 @@ class PiaPia_V3  extends CI_Controller {
         if(strlen($ids) < 1)
             return null;
  
-        $this->load->database('erge2');
-        $hasbody = false;
+        //$this->load->database('erge2');
+        $this->load->database('prj_mmh');
+        //$hasbody = false;
         $ret = array();
+        
+        $episode = 0;
+        
         //如果是分类列表，则查询r表
-        if($type == 10){
-            $sql = "select r_did from r_cls_dir where r_cid in ($ids) ";  //rocking 2015.8.18     .' limit '.($pgId-1)*$pgsize.', '.$pgsize; 
+        if($type == 10 || $type==14){  //可能是视频也可能是音频
+            //先计算总数，因为都是单集，总不能获取所有之后再去计算数量，这样会浪费内存。
+            $sql = "select count(r_did) cnt from mmh_vod_r_type_dir where r_cid in ($ids)";
+            $query = $this->db->query($sql);
+            foreach($query->result() as $row){
+                $episode = $row->cnt;
+                break;
+            }
+            $query->free_result();
+
+            $sql = "select r_did from mmh_vod_r_type_dir where r_cid in ($ids) limit ".($pgId-1)*$pgsize.', '.$pgsize;
             $query = $this->db->query($sql);
             $ids = '';
             foreach($query->result() as $row){
@@ -543,53 +611,57 @@ class PiaPia_V3  extends CI_Controller {
             if(strlen($ids) < 1){
                 $this->db->close();
                 return null;
-            }    
+            }
+            
+            $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid in ('.$ids.') where l_src!=\'360\''; //这里未限制
+            $query = $this->db->query($sql);
         }
         else{
-            //否则直接以$ids查询lib表
+            //确保进入该分支的，只能是某一部影片或连续剧集。 这点至关重要，否则这儿根本就没法处理
+            
+            //计算总集数，以便客户端知道什么时候结束(其实就是 d_episode字段)
+            $sql = 'SELECT sum(d_episode) episode FROM `mmh_vod` where d_id ='.$ids;
+            $query = $this->db->query($sql);
+            foreach($query->result() as $row){
+                $episode = $row->episode;
+                break;
+            }
+            $query->free_result();       
+
+            $bg = ($pgId-1)*$pgsize;
+            $con = "l_idx>=$bg and l_idx<".($bg+$pgsize);            
+            $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid='.$ids.' and l_src!=\'360\' and '.$con.' order by l_idx' ;
+            //exit($sql);
+            $query = $this->db->query($sql);
         }
- 
-        $sql = 'SELECT sum(d_episode) episode  FROM `res_dir` where id in ('.$ids.')';
-        $query = $this->db->query($sql);
-        $episode = 0;
+
+        $cifbakarr = array();
         foreach($query->result() as $row){
-            $episode = $row->episode;
-            break;
-        }
-        $query->free_result();
- 
- 
-        $sql = 'select id,l_filesize,l_downurl,l_pic,l_playcnt,l_name,l_artist,l_src from res_libs where l_pid in ('.$ids.') and l_src!=\'360\' order by l_idx limit '.($pgId-1)*$pgsize.', '.$pgsize;	;
-        $query = $this->db->query($sql);	
-        foreach($query->result() as $row){
-            $cif = array();
-            $cif['id'] = $row->id.'';
-            $cif['filesize'] = $row->l_filesize;
-            $cif['downurl'] = $row->l_downurl;
-            //$cif['downurl'] = 'http://www.nybgjd.com/erge/piapia/play/'.$cif['id'];
-           // $cif['downurl'] = '';//'http://www.nybgjd.com/erge/piapia/getplayurl/?url='.urlencode($row->l_downurl).'&src='.urlencode($row->l_src);
-            $cif['pic'] = $row->l_pic;
-            $cif['playcnt'] = $row->l_playcnt;
-            $cif['name'] = $row->l_name;
-            $cif['artist'] = $row->l_artist;
-            $cif['src'] = $row->l_src;
-             
-            $hasbody = true;
-            $ret['body']['pList'][] = $cif;	
-        }
+            $flag = $row->l_pid.'_'.$row->l_idx;
+            //echo $flag.'<br>';
+            if(isset($cifbakarr[$flag])){
+                //array_push($cifbakarr[$flag]['ulist'], array('s'=>$row->l_src, 'u'=>$row->l_idx));
+                $cifbakarr[$flag]['ulist'][] = array('s'=>$row->l_src, 'u'=>$row->l_idx);
+            }
+            else{
+                $cif = array();
+                $cif['id'] = $row->l_pid.'';
+                $cif['name'] = $row->l_name;
+                $cif['pic'] = $row->l_pic;
+                $cif['ulist'][] = array('s'=>$row->l_src, 'u'=>$row->l_idx);  
+                $cifbakarr[$flag] = $cif;  
+            }
+         }
         $query->free_result();
         $this->db->close();
-
-        if(!$hasbody){
-            $ret['body']['pList'] = array();
-        }
-        
+ 
+        $ret['body']['pList'] = array_values($cifbakarr);        
+ 
         //header
         $ret['header']['retMessage'] = 'ok'; 
         $ret['header']['retStatus'] = 200; 	
-        //User-Agent:Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36  
         //User-Agent:Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1   iphone no-use????
-        $ret['header']['extra'] = array(array('key'=>'iqiyi','value'=>'User-Agent:Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'));
+        $ret['header']['extra'] = array(array('key'=>'iqiyi','value'=>'User-Agent:Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'), array('key'=>'ergeduoduo', 'value'=>'erge_iphone_v2 iOS/2.0.0.0 CFNetwork/672.0.8 Darwin/14.0.0'));
 
         //page
        // $mod = $episode % $pgsize;
@@ -607,8 +679,7 @@ class PiaPia_V3  extends CI_Controller {
         $this->mp_cache->write($data1, $cacheName, 86400);	
         return $data1;
     }
-	
- 
+
 	function report($reson=null){
 	}
 
