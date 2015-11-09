@@ -1,17 +1,17 @@
 <?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
 
  
-define('Cache_Time_OrgPlayUrl', 8*60);
-define('Cache_Time_RealUrl_Youku', 8*60);
-define('Cache_Time_RealUrl_Iqiyi', 8*60);
-define('Cache_Time_RealUrl_Funshion', 8*60);
-define('Cache_Time_RealUrl_Letv', 8*60); 
-define('Cache_Time_RealUrl_General', 8*60);
+define('Cache_Time_OrgPlayUrl', 480);
+define('Cache_Time_RealUrl_Youku', 480);
+define('Cache_Time_RealUrl_Iqiyi', 480);
+define('Cache_Time_RealUrl_Funshion', 480);
+define('Cache_Time_RealUrl_Letv', 480); 
+define('Cache_Time_RealUrl_General', 480);
 
-define('Cache_Time_TopInfo', 8*3600);
-define('Cache_Time_PL', 8*3600);
-define('Cache_Time_ResList', 8*3600); //include h & gridview
-define('Cache_Time_HResList', 8*3600);
+define('Cache_Time_TopInfo', 86400); //24*3600
+define('Cache_Time_PL', 86400);
+define('Cache_Time_ResList', 86400); //include h & gridview
+define('Cache_Time_HResList', 86400);
 
 // http://www.nybgjd.com/erge/piapia/
 
@@ -265,61 +265,47 @@ class PiaPia_V3  extends CI_Controller {
 	//这里的分类可以所有的分类、包括水平的
     // raw(无需缓存)
 	function _getResListData($cids, $pgId, $pgsize=15, $style=''){
+        $ret = array();
 		$cids = trim($cids, ',');
         if(strlen($cids) < 1)
-            return null;
-		//$this->load->library('MP_Cache');
-		//$cacheName = $this->mOemName.'/api__getResListData/'.$cids.'-'.$pgId.'-'.$pgsize;
-		//$data1 = $this->mp_cache->get($cacheName);
-		//if($data1 == false){
-            $this->load->database('prj_mmh');
- 			$ret = array();
-            $cids = strtr($cids, array('_'=>','));
-            
-            $sql = 'select r_did from mmh_vod_r_type_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
-            //exit($sql);
-            $query = $this->db->query($sql);
-            $cids = '';
-            foreach($query->result() as $row){
-                $cids = $cids.$row->r_did.',';
-            }
-            $cids = trim($cids, ',');
-            if(strlen($cids) < 1)
-                return null;
-            //exit($cids);
-            
-			$sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.')';//这儿没必要再限制了  order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
-			//exit($sql);
-            $query = $this->db->query($sql);
-			foreach($query->result() as $row){
-				$cif = array();
-				$cif['id'] = $row->d_id.'';
-				$cif['name'] = $row->d_name;
-				$cif['pic'] = 'posters/'.$row->d_id.'.jpg';//$row->d_pic;
-                //$cif['pic']=$row->d_pic;
-				$cif['hasseq'] = $row->d_hasseq.'';
-				$cif['type']=$row->d_type;
- 				$ret[] = $cif;	
-			}
-			$query->free_result();
-			$this->db->close();		 
-			
-			if(count($ret) > 0){
-				$data1 = $ret;
-				//$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResListData'));
-			}
-			else{
-				return null;
-			}
-		//}
-		return $data1;
+            return $ret;
+        
+        $this->load->database('prj_mmh');
+        $cids = strtr($cids, array('_'=>','));
+        
+        $sql = 'select r_did from mmh_vod_r_type_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+        //exit($sql);
+        $query = $this->db->query($sql);
+        $cids = '';
+        foreach($query->result() as $row){
+            $cids = $cids.$row->r_did.',';
+        }
+        $cids = trim($cids, ',');
+        if(strlen($cids) < 1)
+            return $ret;
+        //exit($cids);
+        $sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.')';//这儿没必要再限制了  order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+        //exit($sql);
+        $query = $this->db->query($sql);
+        foreach($query->result() as $row){
+            $cif = array();
+            $cif['id'] = $row->d_id.'';
+            $cif['name'] = $row->d_name;
+            $cif['pic'] = 'posters/'.$row->d_id.'.jpg';//$row->d_pic;
+            //$cif['pic']=$row->d_pic;
+            $cif['hasseq'] = $row->d_hasseq.'';
+            $cif['type']=$row->d_type;
+            $ret[] = $cif;	
+        }
+        $query->free_result();
+        $this->db->close();		 
+        
+        return $ret;
 	}
 	
     function _getTopInfoCache(){
         $this->load->library('MP_Cache');
         $TOPIC_INFO_CACHE = $this->mp_cache->get('TOPIC_INFO_CACHE');	
-        
-        $TOPIC_INFO_CACHE = false;
         if($TOPIC_INFO_CACHE === false){
             $TOPIC_INFO_CACHE = array();
             $this->load->database('prj_mmh');
@@ -334,7 +320,6 @@ class PiaPia_V3  extends CI_Controller {
                 $this->mp_cache->write($TOPIC_INFO_CACHE, 'TOPIC_INFO_CACHE', constant('Cache_Time_TopInfo'));
             }
         }
-        //print_r($TOPIC_INFO_CACHE);
         return $TOPIC_INFO_CACHE;
     }
     
@@ -343,47 +328,27 @@ class PiaPia_V3  extends CI_Controller {
     // raw(无需缓存)
 	function _getHListArr($topCata, $pgidx=1, $pgsize=20, $style=''){ //style:代表该hlist的展示形态
         $TOPIC_INFO_CACHE = $this->_getTopInfoCache();
-		if(isset($TOPIC_INFO_CACHE[$topCata])){ 
-			//$this->load->library('MP_Cache');
-			//$cacheName = $this->mOemName.'/api__getHListArr/'.$topCata;
-			//$data1 = $this->mp_cache->get($cacheName);		
-			//if($data1 == false){
-                
-				$items =  $TOPIC_INFO_CACHE[$topCata]['subcls'];
-                $items = explode(',',$items);//注意，每个item可能包含_,代表组合的意思
-                
-                $names =  $TOPIC_INFO_CACHE[$topCata]['subcls_desc'];
-                $names = explode(',',$names);
-                
-				$hlistArr = array();
-				foreach($items as $key=>$item){
-					$hlist = array();
-					$hlist['title'] = $names[$key];//$CATA_INFO_CACHE[$item]['name'];
-					$hlist['id'] = $item;  //可能包含 _, 是类型组合
-                    $hlist['style'] = $style;
-                    if(strlen($item) ==0 )
-                        $data = null;
-                    else
-                        $data = $this->_getResListData($item, $pgidx, $pgsize);
-					if($data != null){
-						$hlist['childs'] = $data;
-						$hlistArr[] = $hlist;
-					}
-				}
-				
-				if(count($hlistArr) > 0){
-					$data1 = $hlistArr;
-					//$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HListArr'));
-				}
-				else{
-					return null;
-				}
-			//}
-			return $data1;
+        $hlistArr = array();
+		if(isset($TOPIC_INFO_CACHE[$topCata])){
+            $items =  $TOPIC_INFO_CACHE[$topCata]['subcls'];
+            $items = explode(',',$items);//注意，每个item可能包含_,代表组合的意思
+            
+            $names =  $TOPIC_INFO_CACHE[$topCata]['subcls_desc'];
+            $names = explode(',',$names);
+
+            foreach($items as $key=>$item){
+                $hlist = array();
+                $hlist['title'] = $names[$key];//$CATA_INFO_CACHE[$item]['name'];
+                $hlist['id'] = $item;  //可能包含 _, 是类型组合
+                $hlist['style'] = $style;
+                $data = (strlen($item)==0) ? null: $this->_getResListData($item, $pgidx, $pgsize);
+                if($data != null){
+                    $hlist['childs'] = $data;
+                    $hlistArr[] = $hlist;
+                }
+            }
 		}
-		else{
-			return null;
-		}
+		return $hlistArr;
 	}
 
 	//http://www.nybgjd.com/erge/piapia/getHResList/?header={"sign":"22"}&body={"pageindex":1,"id":"25308","pagesize":21}
@@ -494,30 +459,23 @@ class PiaPia_V3  extends CI_Controller {
 
     function _genResListCache($fid, $pgId, $pgsize,$cacheName, $style){
         $TOPIC_INFO_CACHE = $this->_getTopInfoCache();
-        $headerList = null;
-        $body = null;
+        $headerList = array();
+        $body = array();
         $ret = array();
         //获取All类别的数据
         if(isset($TOPIC_INFO_CACHE[$fid])){
             $ids = $TOPIC_INFO_CACHE[$fid]['allcls'];
             //exit("$ids,$pgId, $pgsize");
             if(strlen($ids)>0){
-                $body = $this->_getResListData($ids, $pgId, $pgsize);
+                $body = $this->_getResListData($ids, $pgId, $pgsize); //return array()
             }
-
             if($pgId == 1 && $fid!=-1){
-                $headerList = $this->_getHListArr($fid, 1, 20, $style);
+                $headerList = $this->_getHListArr($fid, 1, 20, $style);//return array()
             }
-        }	
-        //$this->db->close();
+        }
 
-        if($body == null)
-            $body = array();
-        if($headerList == null)
-            $headerList = array();
         $ret['body']['resList'] = $body;
         $ret['body']['headerList'] = $headerList;
-
 
         //header
         $ret['header']['retMessage'] = 'ok'; 
