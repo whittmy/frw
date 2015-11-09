@@ -1,6 +1,18 @@
 <?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
 
  
+define('Cache_Time_OrgPlayUrl', 8*60);
+define('Cache_Time_RealUrl_Youku', 8*60);
+define('Cache_Time_RealUrl_Iqiyi', 8*60);
+define('Cache_Time_RealUrl_Funshion', 8*60);
+define('Cache_Time_RealUrl_Letv', 8*60); 
+define('Cache_Time_RealUrl_General', 8*60);
+
+define('Cache_Time_TopInfo', 8*3600);
+define('Cache_Time_PL', 8*3600);
+define('Cache_Time_ResList', 8*3600); //include h & gridview
+define('Cache_Time_HResList', 8*3600);
+
 // http://www.nybgjd.com/erge/piapia/
 
 require_once(APPPATH.'/controllers/erge/PUBLIC_CFG/netproxy.php');
@@ -15,13 +27,10 @@ class PiaPia_V3  extends CI_Controller {
        $this->mOemName = 'piapia_v3';
        $this->mChkKey = '@#xpia&*1452';
     }
-    
-    
+
     function usbdebug($mac=null, $orgstr=null){
         exit("abcedfg");
-        
     }
-    
     
     function cfgLoading(){
         echo 'getLoadingcfg';
@@ -47,67 +56,12 @@ class PiaPia_V3  extends CI_Controller {
     function playurl($id='', $src='',$idx='', $tm='', $md5=''){
         if(strlen($id)==0 || strlen($src)==0)
             return;
-
         if(!$this->_chkSign($tm, $md5))
             return;
-        
-        
-        $this->load->library('MP_Cache');
-        $cacheName = $this->mOemName.'/api__playurl/'.$id.'-'.$idx.'-'.$src;
-        
-        $data1 = $this->mp_cache->get($cacheName.'-real');
-        if($data1 != false && substr($data1, 0, 4)=='http'){
-            header('Location: '.$data1);
-            return;
-        }
-        
-		$data1 = $this->mp_cache->get($cacheName);
-        //$data1 = false; 
-        
-        if($data1 === false){
-            $this->load->database('prj_mmh');
-			$sql = "select l_downurl from mmh_vod_libs where l_pid=$id and l_idx=$idx and l_src='$src'";
-            //exit($sql);
-			$query = $this->db->query($sql);
-			foreach($query->result() as $row){
-                $data1 = $row->l_downurl;
-                if(!empty($data1))
-                    $this->mp_cache->write($data1, $cacheName, 60*8);
-                break;
-            }
-            $query->free_result(); 
-            $this->db->close();
-        }
-        //exit($data1);
-        
-        if($src == 'ergeduoduo'){
-            $this->mp_cache->write($data1, $cacheName.'-real', 60*8);
-            header('Location: '.$data1);
-            return;
-        }
-        elseif($src == 'youku' || $src == 'iqiyi' || $src=='funshion'){
-            $data1 = $this->_parserUrl($data1, $src);
-            $this->mp_cache->write($data1, $cacheName.'-real', 60*8);
-            header('Location: '.$data1);
-            return;
-        }
-        else{
-            if($src!='letv'){
-                exit('null');
-            }
-            
-            $data1 = $this->_parserUrl($data1, $src);
-            
-            $tmpfile = tempnam(sys_get_temp_dir(),urlencode($url));
-            if($tmpfile === false){
-                exit('null');
-            }
-            $len = file_put_contents($tmpfile, $data1, LOCK_EX); 
-            if(false === $len){
-                exit('null');
-            }
-            
-            //log_message('error', 'getStreamUrl successful:'.$rpath);
+        $data1 = trim($this->_parserUrl($id, $src, $idx));
+        switch($src){
+        case 'letv':
+            $len=abs(filesize($data1)); //临时文件路径
             header('Content-Description: File Transfer');
             header('Content-Type: application/vnd.apple.mpegurl');
             header('Content-Disposition: attachment; filename='.time().'.m3u8');
@@ -116,47 +70,70 @@ class PiaPia_V3  extends CI_Controller {
             header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
             header('Pragma: public');
             header('Content-Length: ' . $len);
-            readfile($tmpfile);                 
+            readfile($data1);               
+            break;            
+        default:
+            header('Location: '.$data1);
+            break;
         }
+        return;
     }
-    
-    
-    
-	// test ppython
-    function test(){
-	NetProxy("testPP::parser", '', '');
 
-   }
-    function _parserUrl($url, $src){
+    function _parserUrl($id='', $src='',$idx=''){
+        $cacheName = $this->mOemName.'/api__parserUrl_orgurl/'.$id.'-'.$idx.'-'.$src;
+        $url = $this->mp_cache->get($cacheName);
+        if($url === false){
+            $this->load->database('prj_mmh');
+			$sql = "select l_downurl from mmh_vod_libs where l_pid=$id and l_idx=$idx and l_src='$src'";
+            //exit($sql);
+			$query = $this->db->query($sql);
+			foreach($query->result() as $row){
+                $url = $row->l_downurl;
+                if(!empty($url))
+                    $this->mp_cache->write($url, $cacheName, constant('Cache_Time_OrgPlayUrl'));
+                break;
+            }
+            $query->free_result(); 
+            $this->db->close();
+        }
+
         $this->load->library('MP_Cache');
-	$cacheName = "_parserUrl/".urlencode($url).'-'.urlencode($src);
-	$data1 = $this->mp_cache->get($cacheName);
-        $data1 =  false;
-	if($data1 === false){
-		$stream = null;
-//	   if($src == 'youku')
-//		$stream = 'stream_id=mp4';
-            $data1 = trim(NetProxy("videoParser::parser", $url, $stream));
+        $cacheName = "_parserUrl/".urlencode($url).'-'.urlencode($src);
+        $data1 = $this->mp_cache->get($cacheName);
+        if($data1 === false){
+            $data1 = trim(NetProxy("videoParser::parser", $url, null));
             if(!empty($data1)){
-                if($src == 'youku'){
-                    $this->mp_cache->write($data1, $cacheName, 60*8);
-                }
-                else if($src == 'iqiyi'){
-                    $this->mp_cache->write($data1, $cacheName, 60*8);
-                }
-                else if($src == 'letv'){
-                    $this->mp_cache->write($data1, $cacheName, 60*8);
-                }
-                else{
-                    $this->mp_cache->write($data1, $cacheName, 60*8);
+                switch($src){
+                case 'ergeduoduo':
+                    $this->mp_cache->write($data1, $cacheName, 8*3600);
+                    break;                  
+                case 'youku':
+                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Youku'));
+                    break;
+                case 'iqiyi':
+                     $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Iqiyi'));
+                     break;
+                case 'funshion':
+                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Funshion'));
+                    break;
+                case 'letv':
+                    $tmpfile = tempnam(sys_get_temp_dir(),urlencode("$id_$src_$idx"));
+                    if($tmpfile != false){
+                        $len = file_put_contents($tmpfile, $data1, LOCK_EX); 
+                        if($len != false){
+                            $this->mp_cache->write($tmpfile, $cacheName, constant('Cache_Time_RealUrl_Letv'));
+                        }
+                    }
+                    break;
+                default:
+                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_General'));
+                    break;
                 }
             }
         }
         return $data1;
     }
     
-  
- 
  
 	// return: 
 	// 1001: sign error
@@ -164,7 +141,7 @@ class PiaPia_V3  extends CI_Controller {
 	// 1003: lost args
 	// 0: ok
 	function _check1($header, $flag=null){
-        require(APPPATH.'/controllers/erge/PUBLIC_CFG/oem_mgr_cache.php');
+        include(APPPATH.'/controllers/erge/PUBLIC_CFG/oem_mgr_cache.php');
 
 		//global  $OEM_INFO;
 		return 0;
@@ -217,7 +194,6 @@ class PiaPia_V3  extends CI_Controller {
 
 	function errorMsg($code){
 		$flag = true;
-		
 		if($flag){
 			if($code == 1001){
 				$str = '{"body":{},"header":{"retMessage":"you sign is bad!","retStatus":300},"page":[]}';
@@ -287,21 +263,21 @@ class PiaPia_V3  extends CI_Controller {
 	//$cids:类别列表，如 '2_7,3,4' , '2'
 	//刚刚才知道，mp_cache竟然可以缓存数据结构
 	//这里的分类可以所有的分类、包括水平的
+    // raw(无需缓存)
 	function _getResListData($cids, $pgId, $pgsize=15, $style=''){
 		$cids = trim($cids, ',');
         if(strlen($cids) < 1)
             return null;
-		$this->load->library('MP_Cache');
-		$cacheName = $this->mOemName.'/api__getResListData/'.$cids.'-'.$pgId.'-'.$pgsize;
-		$data1 = $this->mp_cache->get($cacheName);
-		$data1 = false;		
-		if($data1 == false){
-			//$this->load->database('erge2');
+		//$this->load->library('MP_Cache');
+		//$cacheName = $this->mOemName.'/api__getResListData/'.$cids.'-'.$pgId.'-'.$pgsize;
+		//$data1 = $this->mp_cache->get($cacheName);
+		//if($data1 == false){
             $this->load->database('prj_mmh');
  			$ret = array();
             $cids = strtr($cids, array('_'=>','));
             
             $sql = 'select r_did from mmh_vod_r_type_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+            //exit($sql);
             $query = $this->db->query($sql);
             $cids = '';
             foreach($query->result() as $row){
@@ -312,8 +288,9 @@ class PiaPia_V3  extends CI_Controller {
                 return null;
             //exit($cids);
             
-			$sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.') order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
-			$query = $this->db->query($sql);
+			$sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.')';//这儿没必要再限制了  order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+			//exit($sql);
+            $query = $this->db->query($sql);
 			foreach($query->result() as $row){
 				$cif = array();
 				$cif['id'] = $row->d_id.'';
@@ -329,26 +306,49 @@ class PiaPia_V3  extends CI_Controller {
 			
 			if(count($ret) > 0){
 				$data1 = $ret;
-				$this->mp_cache->write($data1, $cacheName, 3600*8);
+				//$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResListData'));
 			}
 			else{
 				return null;
 			}
-		}
+		//}
 		return $data1;
 	}
 	
+    function _getTopInfoCache(){
+        $this->load->library('MP_Cache');
+        $TOPIC_INFO_CACHE = $this->mp_cache->get('TOPIC_INFO_CACHE');	
+        
+        $TOPIC_INFO_CACHE = false;
+        if($TOPIC_INFO_CACHE === false){
+            $TOPIC_INFO_CACHE = array();
+            $this->load->database('prj_mmh');
+            $query = $this->db->query('select * from mmh_vod_device_res_mgr order by t_id');	
+            foreach($query->result() as $row){
+                 $TOPIC_INFO_CACHE[$row->t_id] = array('name'=>$row->t_name, 'subcls'=>$row->t_subclses, 'allcls'=>$row->t_allclses, 'subcls_desc'=>$row->t_sub_desc);
+            }
+            $query->free_result();
+            $this->db->close();
+            
+            if(count($TOPIC_INFO_CACHE) > 0){
+                $this->mp_cache->write($TOPIC_INFO_CACHE, 'TOPIC_INFO_CACHE', constant('Cache_Time_TopInfo'));
+            }
+        }
+        //print_r($TOPIC_INFO_CACHE);
+        return $TOPIC_INFO_CACHE;
+    }
+    
 	//获取某一类别下面所有水平布局的分类及其元素列表
 	//该函数主要被其它函数调用，向服务器获取第一页数据时才调用。
+    // raw(无需缓存)
 	function _getHListArr($topCata, $pgidx=1, $pgsize=20, $style=''){ //style:代表该hlist的展示形态
-        require(APPPATH.'/controllers/erge/PUBLIC_CFG/cate_info_cache.php');
-        // global $TOPIC_INFO_CACHE, $CATA_INFO_CACHE;
+        $TOPIC_INFO_CACHE = $this->_getTopInfoCache();
 		if(isset($TOPIC_INFO_CACHE[$topCata])){ 
-			$this->load->library('MP_Cache');
-			$cacheName = $this->mOemName.'/api__getHListArr/'.$topCata;
-			$data1 = $this->mp_cache->get($cacheName);		
-			$data1 = false;
-			if($data1 == false){	
+			//$this->load->library('MP_Cache');
+			//$cacheName = $this->mOemName.'/api__getHListArr/'.$topCata;
+			//$data1 = $this->mp_cache->get($cacheName);		
+			//if($data1 == false){
+                
 				$items =  $TOPIC_INFO_CACHE[$topCata]['subcls'];
                 $items = explode(',',$items);//注意，每个item可能包含_,代表组合的意思
                 
@@ -373,12 +373,12 @@ class PiaPia_V3  extends CI_Controller {
 				
 				if(count($hlistArr) > 0){
 					$data1 = $hlistArr;
-					$this->mp_cache->write($data1, $cacheName, 3600*8);
+					//$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HListArr'));
 				}
 				else{
 					return null;
 				}
-			}
+			//}
 			return $data1;
 		}
 		else{
@@ -387,7 +387,7 @@ class PiaPia_V3  extends CI_Controller {
 	}
 
 	//http://www.nybgjd.com/erge/piapia/getHResList/?header={"sign":"22"}&body={"pageindex":1,"id":"25308","pagesize":21}
-	function getHResList($bgencache=0){		
+	function getHResList($bgencache=0){
 		$header = $this->input->get('header');
         $body = $this->input->get('body');
 		
@@ -412,19 +412,15 @@ class PiaPia_V3  extends CI_Controller {
             $data1 = $this->_genHResListCache($fid, $pgId, $pgsize,$cacheName);
 		}
 		exit($data1);
-	}	
+	}
     
     function _genHResListCache($fid, $pgId, $pgsize, $cacheName){
         //exit($fid.','.$pgId.','.$pgsize.','.$cacheName);
-        
 		$body = $this->_getResListData($fid, $pgId, $pgsize);
-        
 		if($body == null)
 			$body = array();
-        
 		$ret['body']['resList'] = $body;
-        
-        
+
 		//header
 		$ret['header']['retMessage'] = 'ok'; 
 		$ret['header']['retStatus'] = 200; 		
@@ -434,7 +430,7 @@ class PiaPia_V3  extends CI_Controller {
 		$data1 = json_encode($ret);		
         
         $this->load->library('MP_Cache');
-		$this->mp_cache->write($data1, $cacheName, 86400);
+		$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HResList'));
         //echo('----write '.$cacheName.'<br>');
         return $data1;
     }
@@ -478,7 +474,7 @@ class PiaPia_V3  extends CI_Controller {
 		$fid = isset($jobj->id) ? $jobj->id: -1;
         
         //+ style: 2015.9.13
-	// 'role'/''/...
+        // 'role'/''/...    you can the carton character directly
         $style = '';
  
         //==========debug============
@@ -490,7 +486,6 @@ class PiaPia_V3  extends CI_Controller {
 		$this->load->library('MP_Cache');
 		$cacheName = $this->mOemName.'/api_getresList/'.$fid.'-'.$pgId.'-'.$pgsize;
 		$data1 = $this->mp_cache->get($cacheName);
-
 		if($data1 === false || $bgencache==1){
            $data1 = $this->_genResListCache($fid, $pgId, $pgsize,$cacheName,$style);
 		}
@@ -498,16 +493,14 @@ class PiaPia_V3  extends CI_Controller {
 	}		
 
     function _genResListCache($fid, $pgId, $pgsize,$cacheName, $style){
-        //echo 'cache.<br>';
-        require(APPPATH.'/controllers/erge/PUBLIC_CFG/cate_info_cache.php');
-        //global $TOPIC_INFO_CACHE;
-
+        $TOPIC_INFO_CACHE = $this->_getTopInfoCache();
         $headerList = null;
         $body = null;
         $ret = array();
         //获取All类别的数据
         if(isset($TOPIC_INFO_CACHE[$fid])){
             $ids = $TOPIC_INFO_CACHE[$fid]['allcls'];
+            //exit("$ids,$pgId, $pgsize");
             if(strlen($ids)>0){
                 $body = $this->_getResListData($ids, $pgId, $pgsize);
             }
@@ -534,7 +527,7 @@ class PiaPia_V3  extends CI_Controller {
         $ret['page'] = array();
         $data1 = json_encode($ret);	
         $this->load->library('MP_Cache');        
-        $this->mp_cache->write($data1, $cacheName, 86400);
+        $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResList'));
         
         return $data1;
     }
@@ -608,13 +601,10 @@ class PiaPia_V3  extends CI_Controller {
             }
             $query->free_result();
             $ids = trim($ids, ', ');
-            if(strlen($ids) < 1){
-                $this->db->close();
-                return null;
+            if(strlen($ids) >= 1){
+                $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid in ('.$ids.') and l_src!=\'360\''; //这里未限制
+                $query = $this->db->query($sql);
             }
-            
-            $sql = 'select l_pid,l_idx,l_downurl,l_pic,l_name,l_src from mmh_vod_libs where l_pid in ('.$ids.') and l_src!=\'360\''; //这里未限制
-            $query = $this->db->query($sql);
         }
         else{
             //确保进入该分支的，只能是某一部影片或连续剧集。 这点至关重要，否则这儿根本就没法处理
@@ -676,7 +666,7 @@ class PiaPia_V3  extends CI_Controller {
         
         $data1 = json_encode($ret);		
         $this->load->library('MP_Cache');
-        $this->mp_cache->write($data1, $cacheName, 86400);	
+        $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_PL'));	
         return $data1;
     }
 
@@ -814,5 +804,5 @@ class PiaPia_V3  extends CI_Controller {
     }		
 }
 
-/* End of file shandong.php */
-/* Location: ./controllers/shandong.php */
+/* End of file piapia_v3.php */
+/* Location: ./controllers/piapia_v3.php */
