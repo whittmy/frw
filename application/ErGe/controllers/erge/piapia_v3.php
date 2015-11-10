@@ -80,6 +80,7 @@ class PiaPia_V3  extends CI_Controller {
     }
 
     function _parserUrl($id='', $src='',$idx=''){
+        $this->load->library('MP_Cache');
         $cacheName = $this->mOemName.'/api__parserUrl_orgurl/'.$id.'-'.$idx.'-'.$src;
         $url = $this->mp_cache->get($cacheName);
         if($url === false){
@@ -96,17 +97,17 @@ class PiaPia_V3  extends CI_Controller {
             $query->free_result(); 
             $this->db->close();
         }
-
-        $this->load->library('MP_Cache');
+        
+        if($src == 'ergeduoduo'){
+            return $url;
+        }
+        
         $cacheName = "_parserUrl/".urlencode($url).'-'.urlencode($src);
         $data1 = $this->mp_cache->get($cacheName);
         if($data1 === false){
             $data1 = trim(NetProxy("videoParser::parser", $url, null));
             if(!empty($data1)){
-                switch($src){
-                case 'ergeduoduo':
-                    $this->mp_cache->write($data1, $cacheName, 8*3600);
-                    break;                  
+                switch($src){                  
                 case 'youku':
                     $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Youku'));
                     break;
