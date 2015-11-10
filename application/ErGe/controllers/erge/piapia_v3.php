@@ -305,7 +305,8 @@ class PiaPia_V3  extends CI_Controller {
 	
     function _getTopInfoCache(){
         $this->load->library('MP_Cache');
-        $TOPIC_INFO_CACHE = $this->mp_cache->get('TOPIC_INFO_CACHE');	
+        $cacheName = $this->mOemName.'/TOPIC_INFO_CACHE';
+        $TOPIC_INFO_CACHE = $this->mp_cache->get($cacheName);	
         if($TOPIC_INFO_CACHE === false){
             $TOPIC_INFO_CACHE = array();
             $this->load->database('prj_mmh');
@@ -317,7 +318,7 @@ class PiaPia_V3  extends CI_Controller {
             $this->db->close();
             
             if(count($TOPIC_INFO_CACHE) > 0){
-                $this->mp_cache->write($TOPIC_INFO_CACHE, 'TOPIC_INFO_CACHE', constant('Cache_Time_TopInfo'));
+                $this->mp_cache->write($TOPIC_INFO_CACHE, $cacheName, constant('Cache_Time_TopInfo'));
             }
         }
         return $TOPIC_INFO_CACHE;
@@ -375,6 +376,8 @@ class PiaPia_V3  extends CI_Controller {
 		$data1 = $this->mp_cache->get($cacheName);
 		if($data1 === false || $bgencache==1){
             $data1 = $this->_genHResListCache($fid, $pgId, $pgsize,$cacheName);
+            if(!empty($data1))
+                $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HResList'));
 		}
 		exit($data1);
 	}
@@ -382,8 +385,6 @@ class PiaPia_V3  extends CI_Controller {
     function _genHResListCache($fid, $pgId, $pgsize, $cacheName){
         //exit($fid.','.$pgId.','.$pgsize.','.$cacheName);
 		$body = $this->_getResListData($fid, $pgId, $pgsize);
-		if($body == null)
-			$body = array();
 		$ret['body']['resList'] = $body;
 
 		//header
@@ -393,9 +394,6 @@ class PiaPia_V3  extends CI_Controller {
 		//page
 		$ret['page'] = array();
 		$data1 = json_encode($ret);		
-        
-        $this->load->library('MP_Cache');
-		$this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HResList'));
         //echo('----write '.$cacheName.'<br>');
         return $data1;
     }
@@ -452,7 +450,9 @@ class PiaPia_V3  extends CI_Controller {
 		$cacheName = $this->mOemName.'/api_getresList/'.$fid.'-'.$pgId.'-'.$pgsize;
 		$data1 = $this->mp_cache->get($cacheName);
 		if($data1 === false || $bgencache==1){
-           $data1 = $this->_genResListCache($fid, $pgId, $pgsize,$cacheName,$style);
+            $data1 = $this->_genResListCache($fid, $pgId, $pgsize,$cacheName,$style);
+            if(!empty($data1))
+                $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResList'));
 		}
 		exit($data1);
 	}		
@@ -484,9 +484,6 @@ class PiaPia_V3  extends CI_Controller {
         //page
         $ret['page'] = array();
         $data1 = json_encode($ret);	
-        $this->load->library('MP_Cache');        
-        $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResList'));
-        
         return $data1;
     }
 
