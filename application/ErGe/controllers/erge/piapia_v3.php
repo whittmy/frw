@@ -98,7 +98,7 @@ class PiaPia_V3  extends CI_Controller {
             $this->db->close();
         }
         
-        if($src == 'ergeduoduo'){
+        if($src=='ergeduoduo' || $src=='link'){
             return $url;
         }
         
@@ -220,23 +220,30 @@ class PiaPia_V3  extends CI_Controller {
     // 缺点是你失去了对文件传输机制的控制, 比如只允许用户下载文件一次
     //Nginx 默认支持该特性，不需要加载额外的模块。只是实现有些不同，需要发送的 HTTP 头为 X-Accel-Redirect。另外，需要在配置文件中做以下设定
     /*
-        location /protected/ {
+        location /mmh_upload/ {
           internal;
           root   /some/path;
         }
         internal 表示这个路径只能在 Nginx 内部访问，不能用浏览器直接访问防止未授权的下载。
     */
-    function image(){
-        $file = "/protected/中文名.tar.gz";  //对应 /some/path/protected/中文名.tar.gz
+    
+    // arg:  upload/vod/2015-11-11/201511111447222418.jpg
+    // downurl: http://www.nybgjd.com/erge/piapia_v3/image/upload%2fvod%2f2015-11-11%2f201511111447222418.jpg
+    function image($path=null){
+        if(empty($path))
+            exit;
+        // 使用说明
+        // $file = "/mmh_upload/中文名.tar.gz";  //对应 /some/path/mmh_upload/中文名.tar.gz
  
         //若想发送 /some/path/中文名.tar.gz,则配置改为如下：
         /*
-        location /protected/ {
+        location /mmh_upload/ {
           internal;
           alias   /some/path/; # 注意最后的斜杠
         }
         */
  
+        $file = "/mmh_upload/".urldecode($path);
         $filename = basename($file);
      
         header("Content-type: application/octet-stream");
@@ -292,8 +299,15 @@ class PiaPia_V3  extends CI_Controller {
             $cif = array();
             $cif['id'] = $row->d_id.'';
             $cif['name'] = $row->d_name;
-            $cif['pic'] = 'posters/'.$row->d_id.'.jpg';//$row->d_pic;
-            //$cif['pic']=$row->d_pic;
+            //$cif['pic'] = 'posters/'.$row->d_id.'.jpg';//$row->d_pic;
+            $pic = trim($row->d_pic);
+            if(empty($pic) or substr($pic, 0, 4)=='http'){
+                 $cif['pic'] = $pic;
+            }
+            else{
+                 $cif['pic'] = 'http://www.nybgjd.com/erge/'.$this->mOemName .'/image/'.urlencode($pic);
+            }
+           
             $cif['hasseq'] = $row->d_hasseq.'';
             $cif['type']=$row->d_type;
             $ret[] = $cif;	
@@ -442,10 +456,10 @@ class PiaPia_V3  extends CI_Controller {
         $style = '';
  
         //==========debug============
-        if($fid == 6){
-            //数理思维，暂时用 ‘动画’代替
-            $fid = 1;
-        }
+        //if($fid == 6){
+        //    //数理思维，暂时用 ‘动画’代替
+        //    $fid = 1;
+        //}
  
 		$this->load->library('MP_Cache');
 		$cacheName = $this->mOemName.'/api_getresList/'.$fid.'-'.$pgId.'-'.$pgsize;
@@ -463,9 +477,11 @@ class PiaPia_V3  extends CI_Controller {
         $headerList = array();
         $body = array();
         $ret = array();
+        $title = '';
         //获取All类别的数据
         if(isset($TOPIC_INFO_CACHE[$fid])){
             $ids = $TOPIC_INFO_CACHE[$fid]['allcls'];
+            $title = $TOPIC_INFO_CACHE[$fid]['name'];
             //exit("$ids,$pgId, $pgsize");
             if(strlen($ids)>0){
                 $body = $this->_getResListData($ids, $pgId, $pgsize); //return array()
@@ -477,10 +493,11 @@ class PiaPia_V3  extends CI_Controller {
 
         $ret['body']['resList'] = $body;
         $ret['body']['headerList'] = $headerList;
+        $ret['body']['title'] = $title;
 
         //header
         $ret['header']['retMessage'] = 'ok'; 
-        $ret['header']['retStatus'] = 200; 		
+        $ret['header']['retStatus'] = 200; 
 
         //page
         $ret['page'] = array();
