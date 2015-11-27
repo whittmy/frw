@@ -9,21 +9,25 @@
 
 define("TOKEN", "lemoon8888");
 
-// http://www.nybgjd.com/3dclub/test/
-class Test  extends CI_Controller {
+// http://www.nybgjd.com/mpapi/cmd/
+class Cmd  extends CI_Controller {
     //>>> 先参考底部的 ‘基础支持’
 
+    function test(){
+        echo 'test';
+    }
+    
     /**
         微信公众号 开发接口
     */
-	function index(){
-        $this->logi('[index]: enter!');
+	function interface_for_wx(){
+        $this->logi('[interface_for_wx]: enter!');
         $this->_auth();
 
 		//处理消息
 		$ret = $this->parserMsg();
         
-        $this->logi('[index]:leave!!!  respone to wx: '.$ret);
+        $this->logi('[interface_for_wx]:leave!!!  respone to wx: '.$ret);
         exit($ret);
 	}
 	
@@ -56,22 +60,20 @@ class Test  extends CI_Controller {
         $this->logi('[handleMessage]: msgType='.$msgType);
 
 		$ret = ' ';
-		$fromUsername = $postObj->FromUserName; 
-		$toUsername = $postObj->ToUserName; 
- 
         switch($msgType) {
             case 'text': // 文本消息类型；
 				$content = trim($postObj->Content);  
-				$ret = $this->_msgResponeText($fromUsername, $toUsername, '???');
+				$ret = $this->_msgResponeText($postObj->FromUserName, $postObj->ToUserName, '???');
 				break;
 				
             case 'event':
                 $event = trim($postObj->Event);
                 switch($event){
                 case 'subscribe': // 关注    
+                    $this->_updateSubscriptInfo($postObj, true);
                     break;
                 case 'unsubscribe': //取消关注, 清除用户、以及与设备的关系
-                    $this->unsubscribe($postObj->FromUserName);
+                    $this->_updateSubscriptInfo($postObj, false);
                     break;
                 case 'CLICK':       //自定义菜单点击等；
                     $key = trim($postObj->EventKey);
@@ -79,30 +81,12 @@ class Test  extends CI_Controller {
                 }
                 break;
 
+            case 'voice':
+            case 'video':
             case 'image': // 图片消息类型
-                $this->load->database('vr');
-                $uid = $this->_getUserIdx($fromUsername);
-                $didarr = $this->_getDidsInRByUid($uid);
-                foreach($didarr as $did){
-                    if(empty($sql)){
-                        $sql = 'insert into mp_push_list(p_did,p_tm) values ';
-                    }
-                    $sql .= '('.$did.','.time().'),';
-                }
-                if(!empty($sql)){
-                    $sql = trim($sql, ',');
-                    $this->db->query($sql);
-                }
-                
-                $type = 1;
-                $createtime = $postObj->CreateTime;
-                $picurl = $postObj->PicUrl;
-                $mediaid = $postObj->MediaId;
-                $sql = "insert into mp_msgs (m_uid,m_msgtype,m_createtime,m_picurl,m_mediaid) values($uid,$type,$createtime,'$picurl','$mediaid')";
-                $this->db->query($sql);
-                $this->db->close();
-            
+                $this->_addMsg($postObj);
                 break;
+                
             case 'location': // 地理位置信息（用户主动）；
                 break;
                 
@@ -128,6 +112,51 @@ class Test  extends CI_Controller {
 	}
 	
     
+    function _addMsg($postObj){
+        $this->load->database('mp');
+        
+        $uid = $this->_getUserIdx($postObj->FromUserName);
+        
+        //事务开始 >>>>>>>>>>>>>>>>>
+        
+        switch($postObj->MsgType){
+            case 'image':
+                //维护所有的消息列表
+                $didarr = $this->_getDidsInRByUid($uid);
+                foreach($didarr as $did){
+                    if(empty($sql)){
+                        $sql = 'insert into mp_push_list(p_did,p_tm) values ';
+                    }
+                    $sql .= '('.$did.','.time().'),';
+                }
+                if(!empty($sql)){
+                    $sql = trim($sql, ',');
+                    $this->db->query($sql);
+                }            
+                
+                //维护 ‘待推送设备列表’
+                $type = 1;
+                $createtime = $postObj->CreateTime;
+                $content = $postObj->PicUrl;
+                $mediaid = $postObj->MediaId;
+                $sql = "insert into mp_msgs (m_uid,m_msgtype,m_createtime,m_content,m_mediaid) values($uid,$type,$createtime,'$content','$mediaid')";
+                $this->db->query($sql);            
+            break;
+            
+            case 'video':
+            break;
+            
+            case 'voice':
+            break;
+            
+        }
+
+        //<<<<<<<<<<<<<<<<<
+        
+        $this->db->close();
+    }
+    
+    
     function album_data(){
         $ret = array();
         $ret['body']['usrList'] = array();
@@ -150,7 +179,7 @@ class Test  extends CI_Controller {
         }
         else{
 
-            $this->load->database('vr');
+            $this->load->database('mp');
             $didx = $this->_getDeviceIdxByMac($mac);
             $users = $this->_getUidsInR($didx);
 
@@ -170,18 +199,17 @@ class Test  extends CI_Controller {
                 }
                 
                 //$sql = 'select m_uid,m_createtime,m_picurl from mp_msgs where m_uid in ('.$userstr.') and m_msgtype=1 and m_createtime<=(select m_createtime from mp_msgs order by m_createtime desc limit '.($pageidx-1)*$pagesize.', 1)  order by m_createtime desc limit '.$pagesize;
-                $sql = 'select m_uid,m_createtime,m_picurl from mp_msgs where m_uid in ('.$userstr.') and m_msgtype=1 order by m_createtime desc limit '.($pageidx-1)*$pagesize.','. $pagesize;
+                $sql = 'select m_uid,m_createtime,m_content from mp_msgs where m_uid in ('.$userstr.') and m_msgtype=1 order by m_createtime desc limit '.($pageidx-1)*$pagesize.','. $pagesize;
                 //exit($sql);
                 $query = $this->db->query($sql);
                 foreach($query->result() as $row){
-                    $ret['body']['picList'][] = array('uid'=>$row->m_uid, 'pic'=>$row->m_picurl,'date'=>$row->m_createtime);
+                    $ret['body']['picList'][] = array('uid'=>$row->m_uid, 'pic'=>$row->m_content,'date'=>$row->m_createtime);
                 }
                 $query->free_result();
             }
 
             $this->db->close();            
         }
-
         
         $ret['header']['retMessage'] = $retMessage;
         $ret['header']['retStatus'] = $retStatus;
@@ -216,24 +244,17 @@ class Test  extends CI_Controller {
                 <OpenID><![CDATA[%s]]></OpenID>
             </xml>
             */
-            $this->_saveBindInfo($postObj);
-            
+            $this->_updateBindInfo($postObj, true);
         }
-        elseif($event == 'unbind'){
+        elseif($event == 'unbind'){ 
             // 格式同 bind
-            $this->_removeBindInfo();
-            
+            $this->_updateBindInfo($postObj, false);
         }        
     }
 
     
-    function unsubscribe($openid){
-        $this->logi('[unsubscribe]: enter! '."($openid)");
-        $this->load->database('vr');
-        $this->_delUser($openid);
-        $this->db->close();
-    }
-    
+
+    //@Deprecated
     // no transation handle
     function _delUser($openid){ //注意
         $this->logi('[_delUser]: enter!'."($openid)");
@@ -250,7 +271,7 @@ class Test  extends CI_Controller {
 
     //活动于夜深人静时(用户自行更改其昵称或头像是自动通知我们的，所以需要主动去取)
     function updateAllUser(){
-        $this->load->database('vr');
+        $this->load->database('mp');
         $hadend = false;
 
         while(!$hadend){
@@ -270,20 +291,30 @@ class Test  extends CI_Controller {
         $this->db->close();
         echo '-=-=-= finished -=-=-=';
     }
+ 
+    function updateUserinfoOne($openid){
+        $this->logi('[updateUserinfoOne]: enter! openid='.$openid);
+        $this->load->database('mp');
+        $this->updateUserinfo(array($openid));
+        $this->db->close();
+        $this->logi('[updateUserinfoOne]: leave!');
+    }
     
     function updateUserinfo($userArr=array()){
         //$userArr = array('oIXMluGgJBLSVrGSPYYxM2yeA4MY', 'oIXMluKmmcfRao5Jlp5X3EL2V8ls');
+        $this->logi('[updateUserinfo]: enter!');
         $data = array();
         foreach($userArr as $user){
             $data['user_list'][] = array('openid'=>$user, 'lang'=>'zh-CN');
         }
-        if(count($data) == 0)
+        if(count($data) == 0){
+            $this->logi('[updateUserinfo]: exit by no-user');
             return;
-        
+        }
         $api = 'https://api.weixin.qq.com/cgi-bin/user/info/batchget?access_token=ACCESS_TOKEN';
         $con = $this->_doPost($api, json_encode($data));
-        //return $con;
-        //exit($con.'ss');
+        //$this->logi('[updateUserinfo]: getcontent:'.$con);
+
         $jobj = json_decode($con);
         $userlist = $jobj->user_info_list;
         foreach($userlist as $uinfo){
@@ -291,7 +322,8 @@ class Test  extends CI_Controller {
             $nick = empty($uinfo->nickname)? '' : $uinfo->nickname;
             $head = empty($uinfo->headimgurl)? '' : $uinfo->headimgurl;
             $sql = "update mp_users set u_nickname='$nick', u_headimgurl='$head' where u_crc_openid=crc32('$openid') and u_openid='$openid'";
-            echo "$nick($openid)".'<br>';
+            //echo "$nick($openid)".'<br>';
+            $this->logi('[updateUserinfo]: sql='.$sql);
             $this->db->query($sql);
         }
     }
@@ -315,37 +347,93 @@ class Test  extends CI_Controller {
             INDEX(r_did)
          );
     */
-    //OpenID -> deviceid
-    function _saveBindInfo($xmlObj){
-        $this->logi('[_saveBindInfo]: enter!');
-        $this->load->database('vr');
+    
+    
+    /**
+        $bsubscript : true(订阅)， false(取消关注)
+    */
+    function _updateSubscriptInfo($postObj, $bsubscript){
+        $this->logi('[_updateSubscriptInfo]: enter! bsubscript='.($bsubscript?'1':'0'));
+        $this->load->database('mp');
+        $uid = $this->_getUserIdx($postObj->FromUserName);
         
-        $didx = $this->_getDeviceIdx($xmlObj->DeviceID);
-        if($didx == -1){
-           //error 
-           $this->loge('[_getDeviceIdx]: return -1');
+        if($bsubscript){
+            //关注
+            //先判断是否存在，若存在，则更新 u_bsubscript 字段为1
+            //若不存在，则插入
+            if($uid == -1){ //不存在
+                $this->_addUser($postObj->FromUserName); // u_bsubscript 默认为1， u_ibinds 默认为0
+            }
+            else{
+                $sql = 'update mp_users set u_bsubscript=1 where u_id='.$uid;
+                $this->db->query($sql);
+            }
         }
-        $uidx = $this->_getUserIdx($xmlObj->OpenID);
-        if($uidx == -1){
-            //插入用户
-            $uidx = $this->_addUser($xmlObj->OpenID);
+        else{
+            //取消关注
+            //设置 bsubscript为0，取消关注是不解绑的
+            if($uid != -1){
+                $sql = 'update mp_users set u_bsubscript=0 where u_id='.$uid;
+                $this->db->query($sql);
+            }
         }
-        
-        //更新R, 可能会有重复插入！！！！
-        $this->_addR($uidx, $didx);
         
         $this->db->close();
     }
     
-    //这里没有 清除用户， 删除用户始终通过 Event-unsubscribe消息来处理。
-    function _removeBindInfo($xmlObj){
-        $this->logi('[_removeBindInfo]: enter!');
-        $this->load->database('vr');
+    
+    //bind OpenID - deviceid
+    function _updateBindInfo($xmlObj, $bbind){
+        $this->logi('[_updateBindInfo]: enter! bbind='.$bbind);
+        $this->load->database('mp');
+        
         $didx = $this->_getDeviceIdx($xmlObj->DeviceID);
         $uidx = $this->_getUserIdx($xmlObj->OpenID);
-        $this->_delR($uidx, $didx); 
+        
+        if($didx == -1){
+           //error 
+           $this->loge('[_getDeviceIdx]: returned by invalid didx');
+        }
+        else{
+            if($bbind){ //绑定
+                if($uidx == -1){
+                    //插入用户
+                    $uidx = $this->_addUser($xmlObj->OpenID);
+                }
+                
+                //事务开始>>>>>>>
+                
+                //更新R(用户与设备对应关系), 可能会有重复插入！！！！
+                $this->_addR($uidx, $didx);
+                
+                //更新绑定计数器 u_ibinds
+                $sql = 'update mp_users set u_ibinds=(u_ibinds+1) where u_id='.$uidx;
+                $this->db->query($sql);
+                
+                //事务结束<<<<<<<<<
+                
+            }
+            else{
+                //解绑
+                if($uid == -1){
+                    $this->loge('[_getDeviceIdx]: return by invalid uid when unbind');
+                }
+                else{
+                    //事务开始 >>>>>>>>>
+                    //1. 清空 R 表中的用户-设备关系
+                    $this->_delR($uidx, $didx); 
+                    
+                    //2.更新绑定计数器 
+                    $sql = 'update mp_users set u_ibinds=(u_ibinds-1) where u_id='.$uidx;
+                    $this->db->query($sql);
+                    
+                    //事务结束 <<<<<<<<<
+                }
+            }
+        }
         $this->db->close();
     }
+
     
     /**
         删除一个 用户-设备的对应关系
@@ -373,6 +461,12 @@ class Test  extends CI_Controller {
         $sql = "insert into mp_users (u_openid,u_crc_openid) values ('$openid', CRC32('$openid'))";
         $this->db->query($sql);
         $id = $this->db->insert_id();
+        
+        //php不用等待命令执行完，以免超时，如下方式类似于‘后台运行’
+        $cmd = "/a/apps/php-5.4.24/bin/php /a/domains/other.nybgjd.com/public_html/frw/mpapi.php mpapi cmd updateUserinfoOne $openid  > /tmp/null &";
+        $this->logi('[_addUser]: begin to updateUserinfoOne,cmd='.$cmd);
+        system($cmd); 
+        
         $this->logi('[_addUser]: return value: '.$id);
         return $id;
     }
@@ -678,7 +772,7 @@ class Test  extends CI_Controller {
             $retStatus = 201;
         }
         else{
-            $this->load->database('vr');
+            $this->load->database('mp');
             $sql = "select d_qrticket from `mp_devices` where d_crc_mac=CRC32('$mac') and d_mac='$mac'";
             //exit($sql);
             $query = $this->db->query($sql);

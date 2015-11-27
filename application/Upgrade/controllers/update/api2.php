@@ -16,7 +16,7 @@ class Api2 extends CI_Controller {
 		$brand = trim($this->input->post('brand'));     //OEM
 		$firmware = trim($this->input->post('firmware'));     //firmware version   00.00.19
         $device = trim($this->input->post('device'));          //machine model      pippia
-        //exit("apk:$apk_vercode, brand:$brand,board:$board,mac:$mac,android:$android,time:$time,firmware:$firmware,device:$device");
+        log_message('error',"apk:$apk_vercode, brand:$brand,board:$board,mac:$mac,android:$android,time:$time,firmware:$firmware,device:$device");
 
         if(empty($mac) || empty($brand) || empty($firmware) || empty($device)){
             $data1 = '<root><status>other</status><url></url><md5></md5><description country="ELSE"></description></root>';
@@ -26,7 +26,17 @@ class Api2 extends CI_Controller {
 
         
         //piapia 00.00.19版本： apk:11, brand:softwinners,board:nuclear,mac:7cc7093b2cb7,android:4.2.2,time:1443154672,firmware:0.0.19,device:nuclear-story
-        
+        if($firmware=='0.0.19'){
+            $url = 'http://7xnu9e.dl1.z0.glb.clouddn.com/update_20151120_0.0.19_to_00.01.00.ipa'; //'http://172.16.2.5/test/update_20151120_0.0.19_to_00.01.00.ipa';//
+            $md_5 = '29E137C47093B1220F95CC47DF37DF8E';
+            $coutry = 'ELSE';
+            $intro = '00.01.00'."\n".'对系统进行了大量的优化工作';
+            $status = 'success';
+            $data1 = '<root><status>'.$status.'</status><url>'.$url.'</url><md5>'.$md_5.'</md5><description country="'.$coutry.'">'.$intro.'</description></root>';
+            log_message('error', $data1);
+            header('Content-Type: text/xml');	
+            exit($data1);
+        }
         
         
         $this->load->library('MP_Cache');

@@ -8,12 +8,22 @@ define('Cache_Time_RealUrl_Funshion', 480);
 define('Cache_Time_RealUrl_Letv', 480); 
 define('Cache_Time_RealUrl_General', 480);
 
-define('Cache_Time_TopInfo', 86400); //24*3600
+define('Cache_Time_TopInfo', 86400); //   86400       24*3600
 define('Cache_Time_PL', 86400);
 define('Cache_Time_ResList', 86400); //include h & gridview
 define('Cache_Time_HResList', 86400);
 
 // http://www.nybgjd.com/erge/piapia/
+
+    /**
+    
+    
+    
+        重启/平滑重启ngnix，会导致诸多配置失效，要多试几次，记得常备份ngnix的配置文件，否则麻烦
+        顺便 PHP-FPM 也跟着重启下
+    
+    
+    */
 
 require_once(APPPATH.'/controllers/erge/PUBLIC_CFG/netproxy.php');
 // 注意： 需要将mOemName更改为 本文件的名字，否则会影响其它的缓存
@@ -91,7 +101,7 @@ class PiaPia_V3  extends CI_Controller {
 			foreach($query->result() as $row){
                 $url = $row->l_downurl;
                 if(!empty($url))
-                    $this->mp_cache->write($url, $cacheName, constant('Cache_Time_OrgPlayUrl'));
+                    $this->mp_cache->write($url, $cacheName, Cache_Time_OrgPlayUrl);
                 break;
             }
             $query->free_result(); 
@@ -102,32 +112,32 @@ class PiaPia_V3  extends CI_Controller {
             return $url;
         }
         
-        $cacheName = "_parserUrl/".urlencode($url).'-'.urlencode($src);
+        $cacheName = $this->mOemName."/_parserUrl/".urlencode($url).'-'.urlencode($src);
         $data1 = $this->mp_cache->get($cacheName);
         if($data1 === false){
             $data1 = trim(NetProxy("videoParser::parser", $url, null));
             if(!empty($data1)){
                 switch($src){                  
                 case 'youku':
-                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Youku'));
+                    $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Youku);
                     break;
                 case 'iqiyi':
-                     $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Iqiyi'));
+                     $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Iqiyi);
                      break;
                 case 'funshion':
-                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_Funshion'));
+                    $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Funshion);
                     break;
                 case 'letv':
                     $tmpfile = tempnam(sys_get_temp_dir(),urlencode("$id_$src_$idx"));
                     if($tmpfile != false){
                         $len = file_put_contents($tmpfile, $data1, LOCK_EX); 
                         if($len != false){
-                            $this->mp_cache->write($tmpfile, $cacheName, constant('Cache_Time_RealUrl_Letv'));
+                            $this->mp_cache->write($tmpfile, $cacheName, Cache_Time_RealUrl_Letv);
                         }
                     }
                     break;
                 default:
-                    $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_RealUrl_General'));
+                    $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_General);
                     break;
                 }
             }
@@ -215,35 +225,40 @@ class PiaPia_V3  extends CI_Controller {
 		}
 	}
 
+    
 	//
     //X-Sendfile 将允许下载非 web 目录中的文件（例如/root/），即使文件在 .htaccess 保护下禁止访问，也会被下载。
     // 缺点是你失去了对文件传输机制的控制, 比如只允许用户下载文件一次
     //Nginx 默认支持该特性，不需要加载额外的模块。只是实现有些不同，需要发送的 HTTP 头为 X-Accel-Redirect。另外，需要在配置文件中做以下设定
-    /*
-        location /mmh_upload/ {
-          internal;
-          root   /some/path;
-        }
-        internal 表示这个路径只能在 Nginx 内部访问，不能用浏览器直接访问防止未授权的下载。
-    */
-    
     // arg:  upload/vod/2015-11-11/201511111447222418.jpg
     // downurl: http://www.nybgjd.com/erge/piapia_v3/image/upload%2fvod%2f2015-11-11%2f201511111447222418.jpg
     function image($path=null){
         if(empty($path))
             exit;
-        // 使用说明
-        // $file = "/mmh_upload/中文名.tar.gz";  //对应 /some/path/mmh_upload/中文名.tar.gz
- 
-        //若想发送 /some/path/中文名.tar.gz,则配置改为如下：
-        /*
-        location /mmh_upload/ {
-          internal;
-          alias   /some/path/; # 注意最后的斜杠
-        }
-        */
- 
+        
         $file = "/mmh_upload/".urldecode($path);
+
+        /**
+            如果：ngnix设置如下：
+            location /mmh_upload/ {
+              internal;   #internal 表示这个路径只能在 Nginx 内部访问，不能用浏览器直接访问防止未授权的下载。
+              root   /a/domains/other.nybgjd.com/public_html/mmh;
+            }            
+            
+            访问 "/mmh_upload/中文名.tar.gz" ， 实际对应磁盘文件 /a/domains/other.nybgjd.com/public_html/mmh/mmh_upload/中文名.tar.gz
+        */
+
+ 
+        /**
+            如果：ngnix设置如下：
+            location /mmh_upload/ {
+                internal;
+                alias /a/domains/other.nybgjd.com/public_html/mmh/;
+            }      
+
+            访问 /mmh_upload/中文名.tar.gz， 实际对应磁盘文件  /a/domains/other.nybgjd.com/public_html/mmh/中文名.tar.gz
+        */
+        
         $filename = basename($file);
      
         header("Content-type: application/octet-stream");
@@ -281,6 +296,8 @@ class PiaPia_V3  extends CI_Controller {
         $this->load->database('prj_mmh');
         $cids = strtr($cids, array('_'=>','));
         
+        //关系表中需要添加 ‘隐藏/显示’列，方可完美过滤 状态‘隐藏’的数据，否则有可能返回的数据会出现 “不足页”的情况
+        // 但又要涉及 管理系统部分的修改，以及状态同步
         $sql = 'select r_did from mmh_vod_r_type_dir where r_cid in ('.$cids.') limit '.($pgId-1)*$pgsize.', '.$pgsize;	
         //exit($sql);
         $query = $this->db->query($sql);
@@ -292,7 +309,7 @@ class PiaPia_V3  extends CI_Controller {
         if(strlen($cids) < 1)
             return $ret;
         //exit($cids);
-        $sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.')';//这儿没必要再限制了  order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
+        $sql = 'select d_id,d_name,d_pic,d_hasseq,d_type from mmh_vod where d_id in ('.$cids.') and d_hide=0';//这儿没必要再限制了  order by d_id limit '.($pgId-1)*$pgsize.', '.$pgsize;	
         //exit($sql);
         $query = $this->db->query($sql);
         foreach($query->result() as $row){
@@ -333,7 +350,7 @@ class PiaPia_V3  extends CI_Controller {
             $this->db->close();
             
             if(count($TOPIC_INFO_CACHE) > 0){
-                $this->mp_cache->write($TOPIC_INFO_CACHE, $cacheName, constant('Cache_Time_TopInfo'));
+                $this->mp_cache->write($TOPIC_INFO_CACHE, $cacheName, Cache_Time_TopInfo);
             }
         }
         return $TOPIC_INFO_CACHE;
@@ -392,7 +409,7 @@ class PiaPia_V3  extends CI_Controller {
 		if($data1 === false || $bgencache==1){
             $data1 = $this->_genHResListCache($fid, $pgId, $pgsize,$cacheName);
             if(!empty($data1))
-                $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_HResList'));
+                $this->mp_cache->write($data1, $cacheName, Cache_Time_HResList);
 		}
 		exit($data1);
 	}
@@ -467,7 +484,7 @@ class PiaPia_V3  extends CI_Controller {
 		if($data1 === false || $bgencache==1){
             $data1 = $this->_genResListCache($fid, $pgId, $pgsize,$cacheName,$style);
             if(!empty($data1))
-                $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_ResList'));
+                $this->mp_cache->write($data1, $cacheName, Cache_Time_ResList);
 		}
 		exit($data1);
 	}		
@@ -583,7 +600,7 @@ class PiaPia_V3  extends CI_Controller {
             //确保进入该分支的，只能是某一部影片或连续剧集。 这点至关重要，否则这儿根本就没法处理
             
             //计算总集数，以便客户端知道什么时候结束(其实就是 d_episode字段)
-            $sql = 'SELECT sum(d_episode) episode FROM `mmh_vod` where d_id ='.$ids;
+            $sql = 'SELECT sum(d_episode) episode FROM `mmh_vod` where d_id ='.$ids.' and d_hide=0';
             $query = $this->db->query($sql);
             foreach($query->result() as $row){
                 $episode = $row->episode;
@@ -624,7 +641,9 @@ class PiaPia_V3  extends CI_Controller {
         $ret['header']['retMessage'] = 'ok'; 
         $ret['header']['retStatus'] = 200; 	
         //User-Agent:Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1   iphone no-use????
-        $ret['header']['extra'] = array(array('key'=>'iqiyi','value'=>'User-Agent:Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'), array('key'=>'ergeduoduo', 'value'=>'erge_iphone_v2 iOS/2.0.0.0 CFNetwork/672.0.8 Darwin/14.0.0'));
+        //Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36
+        //QY-Player-iOS/2.0.102
+        $ret['header']['extra'] = array(array('key'=>'iqiyi','value'=>'User-Agent:VLC/2.2.0 LibVLC/2.2.0'), array('key'=>'ergeduoduo', 'value'=>'User-Agent:erge_iphone_v2 iOS/2.0.0.0 CFNetwork/672.0.8 Darwin/14.0.0'));
 
         //page
        // $mod = $episode % $pgsize;
@@ -639,7 +658,7 @@ class PiaPia_V3  extends CI_Controller {
         
         $data1 = json_encode($ret);		
         $this->load->library('MP_Cache');
-        $this->mp_cache->write($data1, $cacheName, constant('Cache_Time_PL'));	
+        $this->mp_cache->write($data1, $cacheName, Cache_Time_PL);	
         return $data1;
     }
 

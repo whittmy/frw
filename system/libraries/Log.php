@@ -58,6 +58,12 @@ class CI_Log {
 	}
 
 	// --------------------------------------------------------------------
+//add mill-sec support on log
+function getMillisecond() { 
+	list($s1, $s2) = explode(' ', microtime()); 
+	return (float)sprintf('%.0f', (floatval($s1) /*+ floatval($s2)*/) * 1000); 
+} 
+
 
 	/**
 	 * Write Log File
@@ -95,8 +101,7 @@ class CI_Log {
 		{
 			return FALSE;
 		}
-
-		$message .= $level.' '.(($level == 'INFO') ? ' -' : '-').' '.date($this->_date_fmt). ' --> '.$msg."\n";
+		$message .= $level.' '.(($level == 'INFO') ? ' -' : '-').' '.date($this->_date_fmt).'.'.$this->getMillisecond(). ' --> '.$msg."\n";
 
 		flock($fp, LOCK_EX);
 		fwrite($fp, $message);
