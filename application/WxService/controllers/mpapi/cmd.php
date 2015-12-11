@@ -30,133 +30,230 @@ class Cmd  extends CI_Controller {
         $this->logi('[interface_for_wx]:leave!!!  respone to wx: '.$ret);
         exit($ret);
 	}
-	
-    /*
-        1. 本服务器收到微信通知，需要回复微信服务器
-        2. 回复可以是空串，也可以用规定的方式回应(文本图片等等)
-        3. 若不回复，则微信服务器会进行3次为期5秒的等待。
-    */  
-	function parserMsg(){
-		//$post = $this->input->post(); 无效
-		//$postStr = $GLOBALS["HTTP_RAW_POST_DATA"]; //默认被CI屏蔽了(Input.php)， 微信指定用它
-        $postStr = file_get_contents("php://input"); //可以用该方法替代
-        $this->logi('[parserMsg]: recive data from wx: '.$postStr);
-		if(empty($postStr)){
-			exit('');
-		}
-		
-		//用SimpleXML解析POST过来的XML数据  
-        $postObj = simplexml_load_string($postStr,'SimpleXMLElement',LIBXML_NOCDATA);  
-        // MsgType类型为：text（文本消息）image（图片消息）audio（语音消息）video（视频消息） event location（地理位置消息）
-        // event（事件消息）：subscribe（订阅） unsubscribe（取消订阅）YIXINSCAN（扫描推广二维码）CLICK（自定义菜单点击） 
-        $msgType = trim($postObj->MsgType); // 消息类型；文本、菜单点击等
-        // 可以直接调用 handleMessage()函数，switch一下是为了清晰明了；
-        
-        $ret = $this->handleMessage($postObj, $msgType);
-        return $ret;
-	}
-	
-	function handleMessage($postObj, $msgType){
-        $this->logi('[handleMessage]: msgType='.$msgType);
-
-		$ret = ' ';
-        switch($msgType) {
-            case 'text': // 文本消息类型；
-				$content = trim($postObj->Content);  
-				$ret = $this->_msgResponeText($postObj->FromUserName, $postObj->ToUserName, '???');
-				break;
-				
-            case 'event':
-                $event = trim($postObj->Event);
-                switch($event){
-                case 'subscribe': // 关注    
-                    $this->_updateSubscriptInfo($postObj, true);
-                    break;
-                case 'unsubscribe': //取消关注, 清除用户、以及与设备的关系
-                    $this->_updateSubscriptInfo($postObj, false);
-                    break;
-                case 'CLICK':       //自定义菜单点击等；
-                    $key = trim($postObj->EventKey);
-                    break;                    
-                }
-                break;
-
-            case 'voice':
-            case 'video':
-            case 'image': // 图片消息类型
-                $this->_addMsg($postObj);
-                break;
-                
-            case 'location': // 地理位置信息（用户主动）；
-                break;
-                
-            //==================== 设备消息 ==============    
-            case 'device_text': //设备消息处理
-                $data = base64_decode($postObj->Content);
-                
-                // 逻辑处理
-                //...
-                
-                //推送文本消息给微信
-                // ... 客服
-                break;
-                
-                
-            case 'device_event': //设备事件处理 绑定、解绑， 我们数据库中的用户都是绑定设备的用户，不应该包含仅仅只是订阅的用户。
-                $this->handle_device_event($postObj);
-                break;                
-                
-        }	
-		
-		return $ret;
-	}
-	
     
-    function _addMsg($postObj){
-        $this->load->database('mp');
+    //////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////           接口区      ////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////
+  
+    /////////////////   微信 - 设备   //////// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    /**
+        0. 应用接口 getQrCode
+         设备端通过访问该接口 实现认证设备，并返回设备对应的二维码
+            获取deviceid&授权 这两个操作合为一个，对server端会要求高些，但是客户端只需要作一次请求即可(否则客户端需要进行分步处理)。
+        使用时机： 客户端展示二维码
+        返回值：包含用于生成二维码图片的‘生成串’
+        涉及表：
+            CREATE TABLE `mp_devices` (
+                `d_id`  bigint NOT NULL AUTO_INCREMENT ,
+                `d_model`  varchar(50) NOT NULL DEFAULT '' ,
+                `d_ver` varchar(20) NOT NULL DEFAULT '',
+                `d_mac` char(12) NOT NULL DEFAULT '',
+                `d_deviceid` varchar(100) NOT NULL DEFAULT '',
+                `d_devtype` varchar(50) NOT NULL DEFAULT '',
+                `d_qrticket` varchar(100) NOT NULL DEFAULT '',
+                `d_crc_deviceid` bigint NOT NULL DEFAULT 0,
+                `d_crc_mac`  bigint NOT NULL DEFAULT 0 ,
+                `tm`  timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`d_id`),
+                INDEX (`d_crc_mac`),
+                INDEX(`d_crc_deviceid`) 
+                );
         
-        $uid = $this->_getUserIdx($postObj->FromUserName);
+        http://www.nybgjd.com/mpapi/cmd/getQrCode/?header={"sign":"74D8057518E81DB7E877E1B16BAB0308","firmware":"","mac":"7EC7093B330B","reqtime":"1447666306","vercode":"112"}&body={}
+    **/
+ 
+    function getQrCode(){
+        $this->logi('[getQrCode]: enter!');
+
+        $ret = array();
+
+        $retMessage = 'ok';
+        $retStatus = 200;
+        $qrticket = '';
         
-        //事务开始 >>>>>>>>>>>>>>>>>
-        
-        switch($postObj->MsgType){
-            case 'image':
-                //维护所有的消息列表
-                $didarr = $this->_getDidsInRByUid($uid);
-                foreach($didarr as $did){
-                    if(empty($sql)){
-                        $sql = 'insert into mp_push_list(p_did,p_tm) values ';
-                    }
-                    $sql .= '('.$did.','.time().'),';
+        $header = $this->input->get('header');
+        $jobj = json_decode($header);
+        $mac = strtoupper($jobj->mac);
+        $model ='';
+        $ver = empty($jobj->firmware)?'' : $jobj->firmware;       
+
+        $cacheName = 'QR_'.$mac;
+        $this->load->library('MP_Cache');
+        $data1 = $this->mp_cache->get($cacheName);
+        if($data1 === false){
+            $didx = -1;
+            if(strlen($mac) != 12){
+                $retMessage = 'MAC invalid!';
+                $retStatus = 201;
+            }
+            else{
+                $this->load->database('mp');
+                $sql = "select d_id, d_qrticket from `mp_devices` where d_crc_mac=CRC32('$mac') and d_mac='$mac'";
+                //exit($sql);
+                $query = $this->db->query($sql);
+                foreach($query->result() as $row){
+                    $qrticket = $row->d_qrticket;
+                    $didx = $row->d_id;
+                    break;
                 }
-                if(!empty($sql)){
-                    $sql = trim($sql, ',');
-                    $this->db->query($sql);
-                }            
+                $query->free_result();
                 
-                //维护 ‘待推送设备列表’
-                $type = 1;
-                $createtime = $postObj->CreateTime;
-                $content = $postObj->PicUrl;
-                $mediaid = $postObj->MediaId;
-                $sql = "insert into mp_msgs (m_uid,m_msgtype,m_createtime,m_content,m_mediaid) values($uid,$type,$createtime,'$content','$mediaid')";
-                $this->db->query($sql);            
-            break;
+                //若已经授权则直接返回
+                if(!empty($qrticket)){
+                    $this->logi('[getQrCode]: had authed!');
+                }
+                else{
+                    //先生成一个 deviceId
+                    $genDevInfo = $this->_getDeviceID();
+                    //print_r($genDevInfo);
+                    //echo '<br><br>';
+                    if($genDevInfo['code'] != 0){
+                        $this->loge('[getQrCode]: error status=> '.$genDevInfo['code'].', '.$genDevInfo['msg']);                  
+                        $retMessage = $genDevInfo['msg'];
+                        $retStatus = $genDevInfo['code'];
+                    }
+                    else{
+                        $qrticket = $genDevInfo['qcode'];
+                        $devid = $genDevInfo['devid'];
+                        $AuthInfo = $this->_deviceAuthOne($devid, $mac);
+                        //print_r($AuthInfo);
+                        //echo '<br><br>';            
+                        if($AuthInfo['code'] != 0){
+                            $this->loge('[getQrCode]: error status=> '.$AuthInfo['code'].', '.$AuthInfo['msg']);
+                            $retMessage = $AuthInfo['msg'];
+                            $retStatus = $AuthInfo['code'];
+                        }   
+                        else{
+                            $devtype = $AuthInfo['devtype'];
+                
+                            //更新数据库记录
+                            $sql = "insert into mp_devices (d_model,d_mac,d_ver, d_deviceid,d_devtype,d_qrticket,d_crc_deviceid,d_crc_mac) 
+                                        values ('$model','$mac','$ver','$devid','$devtype','$qrticket',CRC32('$devid'),CRC32('$mac'))";
+                            //exit($sql);
+                            $query = $this->db->query($sql);
+                            if($query == False){
+                                $this-loge('[getQrCode]: error status=> sql error! sql= '.$sql);
+                                $retMessage = 'db error!';
+                                $retStatus = 3306;
+                            }
+                            else{
+                                $didx = $this->db->insert_id();
+                            }
+                        }
+                    }
+                }
+                $this->db->close();
+            }
+
+            $ret['body']['qrcode'] = $qrticket;
+            $ret['body']['didx'] = $didx;
+
+            $ret['header']['retMessage'] = $retMessage;
+            $ret['header']['retStatus'] = $retStatus;
+
+            $ret['page'] = json_decode('{}');
+            //print_r($ret['page']);
+
+            $data1 = json_encode($ret);
+            if($retStatus == 200){
+                $this->mp_cache->write($data1, $cacheName, 1728000); //a month
+            }
+        }
+        exit($data1);
+    }
+     
+    //设备端请求强制解绑
+    function unbind(){
+        $this->logi('[unbind]: enter!');
+        $rtmsg = '{"body":{},"header":{"retStatus":CODE, "retMessage":"MSG"}}';
+        $code = 200;
+        $msg = 'ok';
+
+        $body = $this->input->get('body');
+        $jobj = json_decode($body);
+        $uid = empty($jobj->uid)? 0 : $jobj->uid;
+        
+        $header = $this->input->get('header');
+        $jobj = json_decode($header);
+        $mac = strtoupper($jobj->mac);
+
+        if(empty($uid) || strlen($mac) != 12){
+            $this->logi('[unbind]: exit because uid or mac is null');
+            $code = 201;
+            $msg = '无效用户和设备';
+        }
+        else{
+            $this->load->database('mp');
             
-            case 'video':
-            break;
+            $openid = '';
+            $sql = 'select u_openid from mp_users where u_id='.$uid;
+            $query = $this->db->query($sql);
+            foreach($query->result() as $row){
+                $openid = $row->u_openid;    
+            }
+            $query->free_result();
             
-            case 'voice':
-            break;
+            $d_id = 0;
+            $d_deviceid = '';
+            $sql = "select d_id, d_deviceid from mp_devices where d_crc_mac=crc32('$mac') and d_mac='$mac'";
+            $query = $this->db->query($sql);
+            foreach($query->result() as $row){
+                $d_id = $row->d_id;
+                $d_deviceid = $row->d_deviceid;
+            }
+            $query->free_result();
             
+            //若非空，则请求解绑
+            if(!empty($openid) && !empty($d_deviceid)){
+                $api = 'https://api.weixin.qq.com/device/compel_unbind?access_token=ACCESS_TOKEN';
+                $jsonstr = '{"device_id":"'.$d_deviceid.'", "openid": "'.$openid.'"}';
+                $rslt = $this->_doPost($api, $jsonstr);
+                
+                //>>>>>事务开始
+                $this->db->trans_begin();
+                
+                //不管成功与否，都清除r表关系吧。
+                $this->_delR($uid, $d_id);
+                $sql = 'update mp_users set u_ibinds=(u_ibinds-1) where u_id='.$uidx;
+                $this->db->query($sql);
+                 
+                if ($this->db->trans_status() === FALSE){
+                    $this->db->trans_rollback();
+                    $this->loge('[_getDeviceIdx]: trans_complete failed ');
+                }
+                else{
+                    $this->db->trans_commit();
+                }     
+                //<<<<<< 事务结束<<<<<< 
+            
+                /** 返回结果又以下两种格式
+                    {"errcode":40001,"errmsg":"invalid credential, access_token is invalid or not latest"}
+                    {"base_resp":{"errcode":0,"errmsg":"ok"}}
+                */
+                $rslt = strtr($rslt, array('{"base_resp":'=>'', '}}'=>'}'));
+                $this->logi('[unbind]: unbind-rslt(had filtered):'.$rslt);
+                $jobj = json_decode($rslt);     //{base_resp:{"errcode": 0,"errmsg":"ok"}}
+
+                //记录实际解绑失败的相关信息到failed_unbind.log文件中
+                if($jobj == null || $jobj->errcode!=0){
+                    $file = dirname(__FILE__).'/failed_unbind.log'; 
+                    //@file_put_contents($file, $jsonstr.PHP_EOL, FILE_APPEND);
+                    $this->_append_file($file, $jsonstr, true);
+                }
+            }
+            else{
+                $code = 402;
+                $msg = 'openid or deviceid is null';
+            }            
+            $this->db->close();
         }
 
-        //<<<<<<<<<<<<<<<<<
-        
-        $this->db->close();
+        $rtmsg = strtr($rtmsg, array('CODE'=>$code, 'MSG'=>$msg));
+        exit($rtmsg);
     }
     
     
+    //http://www.nybgjd.com/mpapi/cmd/album_data/?header={"sign":"396766D60D5C1B526864B981BA9516DA","firmware":"","mac":"0011AA334457","reqtime":"1447730987","vercode":"1"}&body={"pageindex":1}
     function album_data(){
         $ret = array();
         $ret['body']['usrList'] = array();
@@ -198,8 +295,7 @@ class Cmd  extends CI_Controller {
                     $query->free_result();
                 }
                 
-                //$sql = 'select m_uid,m_createtime,m_picurl from mp_msgs where m_uid in ('.$userstr.') and m_msgtype=1 and m_createtime<=(select m_createtime from mp_msgs order by m_createtime desc limit '.($pageidx-1)*$pagesize.', 1)  order by m_createtime desc limit '.$pagesize;
-                $sql = 'select m_uid,m_createtime,m_content from mp_msgs where m_uid in ('.$userstr.') and m_msgtype=1 order by m_createtime desc limit '.($pageidx-1)*$pagesize.','. $pagesize;
+                $sql = 'select m_uid,m_createtime,m_content from mp_msgs where m_uid in ('.$userstr.') and m_did='.$didx.' and m_msgtype=1 order by m_createtime desc limit '.($pageidx-1)*$pagesize.','. $pagesize;
                 //exit($sql);
                 $query = $this->db->query($sql);
                 foreach($query->result() as $row){
@@ -223,11 +319,96 @@ class Cmd  extends CI_Controller {
         $rslt = json_encode($ret);
         exit($rslt);
     }
+    ////////////////////////////  接口  End     ////////////////////////////////////////////////
+        
+    
+
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /*
+        1. 本服务器收到微信通知，需要回复微信服务器
+        2. 回复可以是空串，也可以用规定的方式回应(文本图片等等)
+        3. 若不回复，则微信服务器会进行3次为期5秒的等待。
+    */  
+	function parserMsg(){
+		//$post = $this->input->post(); 无效
+		//$postStr = $GLOBALS["HTTP_RAW_POST_DATA"]; //默认被CI屏蔽了(Input.php)， 微信指定用它
+        $postStr = file_get_contents("php://input"); //可以用该方法替代
+        //$this->logi('[parserMsg]: recive data from wx: '.$postStr);
+		if(empty($postStr)){
+			exit('');
+		}
+		
+		//用SimpleXML解析POST过来的XML数据  
+        $postObj = simplexml_load_string($postStr,'SimpleXMLElement',LIBXML_NOCDATA);  
+        // MsgType类型为：text（文本消息）image（图片消息）audio（语音消息）video（视频消息） event location（地理位置消息）
+        // event（事件消息）：subscribe（订阅） unsubscribe（取消订阅）YIXINSCAN（扫描推广二维码）CLICK（自定义菜单点击） 
+        $msgType = trim($postObj->MsgType); // 消息类型；文本、菜单点击等
+        // 可以直接调用 handleMessage()函数，switch一下是为了清晰明了；
+        
+        $ret = $this->handleMessage($postObj, $msgType);
+        return $ret; 
+	} 
+	
+	function handleMessage($postObj, $msgType){
+        $this->logi('[handleMessage]: msgType='.$msgType);
+
+		$ret = ' ';
+        switch($msgType) {
+            case 'text': // 文本消息类型；
+				$content = trim($postObj->Content);  
+				$ret = $this->_msgResponeText($postObj->FromUserName, $postObj->ToUserName, '???');
+				break;
+				
+            case 'event':
+                $event = trim($postObj->Event);
+                switch($event){
+                case 'subscribe': // 关注    
+                    // 暂时屏蔽，因为为使用事务处理，当与绑定事件同时请求我们服务器时，可能会导致同一个用户‘同时插入2条到用户表’ ==>2015.12.9 已add事务处理，依旧待测试
+                    $this->_updateSubscriptInfo($postObj, true);
+                    break;
+                case 'unsubscribe': //取消关注, 清除用户、以及与设备的关系
+                    $this->_updateSubscriptInfo($postObj, false);
+                    break;
+                case 'CLICK':       //自定义菜单点击等；
+                    $key = trim($postObj->EventKey);
+                    break;                    
+                }
+                break;
+            
+            // 媒体类型处理
+            case 'voice':
+            case 'video':
+            case 'image': 
+                $this->_addMsg($postObj);
+                break;
+                
+            case 'device_event': //设备事件处理 绑定、解绑， 我们数据库中的用户都是绑定设备的用户，不应该包含仅仅只是订阅的用户。
+                $ret = $this->handle_device_event($postObj);
+                break; 
+                
+            case 'location': // 地理位置信息（用户主动）；
+                break;
+                
+            //======  设备消息 ==============    
+            case 'device_text': //设备消息处理
+                $data = base64_decode($postObj->Content);
+                
+                // 逻辑处理
+                //...
+                
+                //推送文本消息给微信
+                // ... 客服
+                break;
+        }	
+		return $ret;
+	}
+    
     
 	//我们数据库中的用户都是绑定设备的用户，不应该包含仅仅只是订阅的用户。
     function handle_device_event($postObj){
         $this->logi('[handle_device_event] enter!');
         $event = trim($postObj->Event);
+        $ret = ' ';
         // 处理用户与设备的关系
         if($event == 'bind'){
             /* 我们收到来自微信的消息格式
@@ -245,14 +426,91 @@ class Cmd  extends CI_Controller {
             </xml>
             */
             $this->_updateBindInfo($postObj, true);
+            $ret = $this->_msgResponeText($postObj->FromUserName, $postObj->ToUserName, '欢迎绑定设备，现在可以向早教机发送图片啦！');
         }
         elseif($event == 'unbind'){ 
             // 格式同 bind
-            $this->_updateBindInfo($postObj, false);
-        }        
-    }
-
+            //这个通常收不到消息的
+        }    
+        
+        return $ret;
+    }    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	
     
+    function _addMsg($postObj){
+        $this->logi("\n".'[_addMsg]: enter!');
+        $this->load->database('mp');
+        $uid = $this->_getUserIdx($postObj->FromUserName);
+        
+        //事务开始 >>>>>>>>>>>>>>>>>
+        $this->db->trans_begin();
+        
+        switch($postObj->MsgType){
+            case 'image':  //msgtype=1
+                //维护 ‘待推送设备列表’
+                $type = 1;
+                $createtime = $postObj->CreateTime;
+                $content = $postObj->PicUrl;
+                $mediaid = $postObj->MediaId;
+
+                //维护所有的消息列表
+                $didarr = $this->_getDidsInRByUid($uid);
+                foreach($didarr as $did){
+                    if(empty($sql)){
+                        $sql = 'insert into mp_push_list(p_did,p_msgtype, p_tm) values ';
+                    }
+                    $sql .= '('.$did.', 1, '.time().'),';
+                    
+                    if(empty($sql2)){
+                        $sql2 = 'insert into mp_msgs (m_uid,m_did,m_msgtype,m_createtime,m_content,m_mediaid) values ';
+                    }
+                    $sql2 .= "($uid,$did,$type,$createtime,'$content','$mediaid'),";
+                }
+                if(!empty($sql)){
+                    $sql = trim($sql, ',');
+                    $this->logi("\n".'[_addMsg]: type-image sql= '. $sql);
+                    $this->db->query($sql);
+                }            
+                if(!empty($sql2)){
+                    $sql2 = trim($sql2, ',');
+                    $this->logi("\n".'[_addMsg]: type-image sql2= '. $sql2);
+                    $this->db->query($sql2);  
+                }            
+            break;
+            
+            case 'video':
+            break;
+            
+            case 'voice':
+            break;
+            
+        }
+        
+        if ($this->db->trans_status() === FALSE){
+            $this->db->trans_rollback();
+            $this->loge('[_getDeviceIdx]: trans_complete failed ');
+        }
+        else{
+            $this->db->trans_commit();
+        }
+        //<<<<<<<<<<<<<<<<< 事务结束
+        
+        $this->db->close();
+    }
+    
+
+    function _append_file($file, $msg, $newline=false){
+        $fp = fopen($file, 'a+');
+        flock($fp, LOCK_EX | LOCK_NB);
+        if($newline)
+            $msg .= PHP_EOL;
+        fwrite($fp, $msg);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+    
+
 
     //@Deprecated
     // no transation handle
@@ -330,32 +588,17 @@ class Cmd  extends CI_Controller {
     
     
     ///>>>>> 维护用户与设备的对应关系 >>>>>>>>>>>>>>>>>>>>>
-    /** 初步表结构
-        create table mp_users(
-            u_id bigint NOT NULL AUTO_INCREMENT ,
-            u_openid varchar(60) NOT NULL,
-            u_crc_openid bigint NOT NULL,
-            PRIMARY KEY (`u_id`),
-            INDEX (`u_crc_openid`)
-         );
-         create table mp_r_user_devs(
-            r_id bigint NOT NULL AUTO_INCREMENT,
-            r_uid bigint NOT NULL,
-            r_did bigint NOT NULL,
-            PRIMARY KEY(r_id),
-            INDEX(r_uid),
-            INDEX(r_did)
-         );
-    */
-    
-    
-    /**
+    ///////////////// 用户自发的订阅、取消订阅、绑定操作 //////////>>>>>>    
+    /*
         $bsubscript : true(订阅)， false(取消关注)
     */
     function _updateSubscriptInfo($postObj, $bsubscript){
         $this->logi('[_updateSubscriptInfo]: enter! bsubscript='.($bsubscript?'1':'0'));
         $this->load->database('mp');
         $uid = $this->_getUserIdx($postObj->FromUserName);
+        
+        //事务开始>>>>>>>>>>>
+        $this->db->trans_begin();
         
         if($bsubscript){
             //关注
@@ -378,10 +621,20 @@ class Cmd  extends CI_Controller {
             }
         }
         
+        if ($this->db->trans_status() === FALSE){
+            $this->db->trans_rollback();
+            $this->loge('[_getDeviceIdx]: trans_complete failed ');
+        }
+        else{
+            $this->db->trans_commit();
+        }
+        //事务结束<<<<<<<<<<
+        
         $this->db->close();
     }
     
-    
+    //更新绑定设备计数值会有一个问题，就是当用户取消关注后，即便我们没有强制‘解绑用户’，再次扫设备码时也会绑定设备，如此设备计数就有问题了。
+    //
     //bind OpenID - deviceid
     function _updateBindInfo($xmlObj, $bbind){
         $this->logi('[_updateBindInfo]: enter! bbind='.$bbind);
@@ -395,45 +648,57 @@ class Cmd  extends CI_Controller {
            $this->loge('[_getDeviceIdx]: returned by invalid didx');
         }
         else{
+            //事务开始>>>>>>>
+            $this->db->trans_begin();
+                
             if($bbind){ //绑定
+                //在绑定计数更新前2秒(绑定、解绑、关注、取消关注等操作，怎么都有花个2秒以上，但是绑定时顺带的关注则时间差非常小)如果有对当前用户做过更新，则此次计数操作取消。
+                //但首次要加一，即u_ibinds=0时
+                $where2 = ' and (TIMESTAMPDIFF(SECOND, u_tm, now())>2 or u_ibinds=0)';  
                 if($uidx == -1){
                     //插入用户
                     $uidx = $this->_addUser($xmlObj->OpenID);
+                    
+                    //如果当前为新增用户，则不限制条件， ‘绑定设备计数’要加1.
+                    $where2 = '';
                 }
-                
-                //事务开始>>>>>>>
-                
+
                 //更新R(用户与设备对应关系), 可能会有重复插入！！！！
                 $this->_addR($uidx, $didx);
                 
                 //更新绑定计数器 u_ibinds
-                $sql = 'update mp_users set u_ibinds=(u_ibinds+1) where u_id='.$uidx;
+                $sql = 'update mp_users set u_ibinds=(u_ibinds+1) where u_id='.$uidx.$where2;
+                $this->logi('#####sql='.$sql);
                 $this->db->query($sql);
-                
-                //事务结束<<<<<<<<<
-                
             }
             else{
-                //解绑
+                //解绑(该分支基本不执行)
                 if($uid == -1){
                     $this->loge('[_getDeviceIdx]: return by invalid uid when unbind');
                 }
                 else{
-                    //事务开始 >>>>>>>>>
                     //1. 清空 R 表中的用户-设备关系
                     $this->_delR($uidx, $didx); 
                     
                     //2.更新绑定计数器 
                     $sql = 'update mp_users set u_ibinds=(u_ibinds-1) where u_id='.$uidx;
                     $this->db->query($sql);
-                    
-                    //事务结束 <<<<<<<<<
                 }
             }
+
+            if ($this->db->trans_status() === FALSE){
+                $this->db->trans_rollback();
+                $this->loge('[_getDeviceIdx]: trans_complete failed ');
+            }
+            else{
+                $this->db->trans_commit();
+            }            
+            //事务结束<<<<<<<<<            
         }
         $this->db->close();
     }
-
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    
     
     /**
         删除一个 用户-设备的对应关系
@@ -463,7 +728,7 @@ class Cmd  extends CI_Controller {
         $id = $this->db->insert_id();
         
         //php不用等待命令执行完，以免超时，如下方式类似于‘后台运行’
-        $cmd = "/a/apps/php-5.4.24/bin/php /a/domains/other.nybgjd.com/public_html/frw/mpapi.php mpapi cmd updateUserinfoOne $openid  > /tmp/null &";
+        $cmd = "/a/apps/php-5.4.24/bin/php /a/domains/other.nybgjd.com/public_html/frw/mpapi.php mpapi cmd updateUserinfoOne $openid  > /dev/null &";
         $this->logi('[_addUser]: begin to updateUserinfoOne,cmd='.$cmd);
         system($cmd); 
         
@@ -725,119 +990,7 @@ class Cmd  extends CI_Controller {
     
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     
-    
-    /////////////////   微信 - 设备   //////// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    /**
-        0. 应用接口 getQrCode
-         设备端通过访问该接口 实现认证设备，并返回设备对应的二维码
-            获取deviceid&授权 这两个操作合为一个，对server端会要求高些，但是客户端只需要作一次请求即可(否则客户端需要进行分步处理)。
-        使用时机： 客户端展示二维码
-        返回值：包含用于生成二维码图片的‘生成串’
-        涉及表：
-            CREATE TABLE `mp_devices` (
-                `d_id`  bigint NOT NULL AUTO_INCREMENT ,
-                `d_model`  varchar(50) NOT NULL DEFAULT '' ,
-                `d_ver` varchar(20) NOT NULL DEFAULT '',
-                `d_mac` char(12) NOT NULL DEFAULT '',
-                `d_deviceid` varchar(100) NOT NULL DEFAULT '',
-                `d_devtype` varchar(50) NOT NULL DEFAULT '',
-                `d_qrticket` varchar(100) NOT NULL DEFAULT '',
-                `d_crc_deviceid` bigint NOT NULL DEFAULT 0,
-                `d_crc_mac`  bigint NOT NULL DEFAULT 0 ,
-                `tm`  timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (`d_id`),
-                INDEX (`d_crc_mac`),
-                INDEX(`d_crc_deviceid`) 
-                );
-        
-        http://www.nybgjd.com/3dclub/test/getQrCode?info={"mac":"0011AA334455","model":"PiaPia", "ver":"00.22.11"}
-    **/
- 
-    function getQrCode(){
-        $this->logi('[getQrCode]: enter!');
-
-        $ret = array();
-
-        $retMessage = 'ok';
-        $retStatus = 200;
-        $qrticket = '';
-        
-        $header = $this->input->get('header');
-        $jobj = json_decode($header);
-        $mac = strtoupper($jobj->mac);
-        $model ='';
-        $ver = empty($jobj->firmware)?'' : $jobj->firmware;        
-        if(strlen($mac) != 12){
-            $retMessage = 'MAC invalid!';
-            $retStatus = 201;
-        }
-        else{
-            $this->load->database('mp');
-            $sql = "select d_qrticket from `mp_devices` where d_crc_mac=CRC32('$mac') and d_mac='$mac'";
-            //exit($sql);
-            $query = $this->db->query($sql);
-            foreach($query->result() as $row){
-                $qrticket = $row->d_qrticket;
-                break;
-            }
-            $query->free_result();
-            
-            //若已经授权则直接返回
-            if(!empty($qrticket)){
-                $this->logi('[getQrCode]: had authed!');
-            }
-            else{
-                //先生成一个 deviceId
-                $genDevInfo = $this->_getDeviceID();
-                //print_r($genDevInfo);
-                //echo '<br><br>';
-                if($genDevInfo['code'] != 0){
-                    $this->loge('[getQrCode]: error status=> '.$genDevInfo['code'].', '.$genDevInfo['msg']);                  
-                    $retMessage = $genDevInfo['msg'];
-                    $retStatus = $genDevInfo['code'];
-                }
-                else{
-                    $qrticket = $genDevInfo['qcode'];
-                    $devid = $genDevInfo['devid'];
-                    $AuthInfo = $this->_deviceAuthOne($devid, $mac);
-                    //print_r($AuthInfo);
-                    //echo '<br><br>';            
-                    if($AuthInfo['code'] != 0){
-                        $this->loge('[getQrCode]: error status=> '.$AuthInfo['code'].', '.$AuthInfo['msg']);
-                        $retMessage = $AuthInfo['msg'];
-                        $retStatus = $AuthInfo['code'];
-                    }   
-                    else{
-                        $devtype = $AuthInfo['devtype'];
-            
-                        //更新数据库记录
-                        $sql = "insert into mp_devices (d_model,d_mac,d_ver, d_deviceid,d_devtype,d_qrticket,d_crc_deviceid,d_crc_mac) 
-                                    values ('$model','$mac','$ver','$devid','$devtype','$qrticket',CRC32('$devid'),CRC32('$mac'))";
-                        //exit($sql);
-                        $query = $this->db->query($sql);
-                        if($query == False){
-                            $this-loge('[getQrCode]: error status=> sql error! sql= '.$sql);
-                            $retMessage = 'db error!';
-                            $retStatus = 3306;
-                        }  
-                    }
-                }
-            }
-            $this->db->close();
-        }
-
-        $ret['body']['qrcode'] = $qrticket;
-
-        $ret['header']['retMessage'] = $retMessage;
-        $ret['header']['retStatus'] = $retStatus;
-
-        $ret['page'] = json_decode('{}');
-        //print_r($ret['page']);
-
-        $rslt = json_encode($ret);
-        exit($rslt);
-    }
- 
+  
     /**
        http://www.nybgjd.com/3dclub/test/getDeviceID
        1.  获取设备ID
@@ -1085,7 +1238,7 @@ class Cmd  extends CI_Controller {
 
 	
 
-
+ 
 
 
 

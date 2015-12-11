@@ -42,12 +42,12 @@ abstract class AndroidNotification extends UmengNotification {
 			$this->data[$key] = $value;
 		} else if (in_array($key, $this->PAYLOAD_KEYS)) {
 			$this->data["payload"][$key] = $value;
-			if ($key == "display_type" && $value == "message") {
+			if ($key == "display_type" && $value == "message") { //rocking,  这儿是‘自定义消息’类型，非 ‘通知’类型, 虽然在web界面测试的消息无下面字段，但我在这儿将其屏蔽掉后导致发送有问题，先不折腾了。 
 				$this->data["payload"]["body"]["ticker"] = "";
 				$this->data["payload"]["body"]["title"] = "";
 				$this->data["payload"]["body"]["text"] = "";
 				$this->data["payload"]["body"]["after_open"] = "";
-				if (!array_key_exists("custom", $this->data["payload"]["body"])) {
+                if (!array_key_exists("custom", $this->data["payload"]["body"])) {
 					$this->data["payload"]["body"]["custom"] = NULL;
 				}
 			}

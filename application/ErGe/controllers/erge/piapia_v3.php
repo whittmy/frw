@@ -37,7 +37,12 @@ class PiaPia_V3  extends CI_Controller {
        $this->mOemName = 'piapia_v3';
        $this->mChkKey = '@#xpia&*1452';
     }
-
+    function clearcache(){
+        system('rm -rf /a/domains/other.nybgjd.com/public_html/frw/application/ErGe/mp_cache/piapia_v3/api_getresList/*');
+        system('rm -f /a/domains/other.nybgjd.com/public_html/frw/application/ErGe/mp_cache/piapia_v3/TOPIC_INFO_CACHE.cache');
+        echo '清除完毕';
+    }
+    
     function usbdebug($mac=null, $orgstr=null){
         exit("abcedfg");
     }
@@ -70,6 +75,7 @@ class PiaPia_V3  extends CI_Controller {
             return;
         $data1 = trim($this->_parserUrl($id, $src, $idx));
         switch($src){
+        /*
         case 'letv':
             $len=abs(filesize($data1)); //临时文件路径
             header('Content-Description: File Transfer');
@@ -81,7 +87,8 @@ class PiaPia_V3  extends CI_Controller {
             header('Pragma: public');
             header('Content-Length: ' . $len);
             readfile($data1);               
-            break;            
+            break;
+        */
         default:
             header('Location: '.$data1);
             break;
@@ -93,6 +100,7 @@ class PiaPia_V3  extends CI_Controller {
         $this->load->library('MP_Cache');
         $cacheName = $this->mOemName.'/api__parserUrl_orgurl/'.$id.'-'.$idx.'-'.$src;
         $url = $this->mp_cache->get($cacheName);
+        //$url = false;
         if($url === false){
             $this->load->database('prj_mmh');
 			$sql = "select l_downurl from mmh_vod_libs where l_pid=$id and l_idx=$idx and l_src='$src'";
@@ -114,13 +122,25 @@ class PiaPia_V3  extends CI_Controller {
         
         $cacheName = $this->mOemName."/_parserUrl/".urlencode($url).'-'.urlencode($src);
         $data1 = $this->mp_cache->get($cacheName);
+        //$data1 = false;
         if($data1 === false){
-            $data1 = trim(NetProxy("videoParser::parser", $url, null));
+            include(APPPATH.'/controllers/erge/PUBLIC_CFG/VideoParser.class.php');
+            //exit($url);
+            $urlParser = new VideoParser($url);
+            //log_message('error', 'begin to parser!!');
+            $data1 = $urlParser->parser(); //返回url
+
+            //现在不用这个了
+            //$data1 = trim(NetProxy("videoParser::parser", $url, null));
             if(!empty($data1)){
                 switch($src){                  
                 case 'youku':
                     $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Youku);
                     break;
+                case 'letv':
+                    $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Letv);
+                    break;
+                /*
                 case 'iqiyi':
                      $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_Iqiyi);
                      break;
@@ -136,6 +156,7 @@ class PiaPia_V3  extends CI_Controller {
                         }
                     }
                     break;
+                */    
                 default:
                     $this->mp_cache->write($data1, $cacheName, Cache_Time_RealUrl_General);
                     break;
@@ -384,7 +405,7 @@ class PiaPia_V3  extends CI_Controller {
 		return $hlistArr;
 	}
 
-	//http://www.nybgjd.com/erge/piapia/getHResList/?header={"sign":"22"}&body={"pageindex":1,"id":"25308","pagesize":21}
+	//http://www.nybgjd.com/erge/piapia_v3/getHResList/?header={"sign":"22"}&body={"pageindex":1,"id":"25308","pagesize":21}
 	function getHResList($bgencache=0){
 		$header = $this->input->get('header');
         $body = $this->input->get('body');
